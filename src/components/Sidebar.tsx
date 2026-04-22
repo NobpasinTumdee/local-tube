@@ -7,7 +7,6 @@ interface Props {
 export default function Sidebar({ playlists }: Props) {
   const activePlaylist = useStore((s) => s.activePlaylist);
   const setActivePlaylist = useStore((s) => s.setActivePlaylist);
-  const playVideo = useStore((s) => s.playVideo);
   const videos = useStore((s) => s.videos);
 
   const countFor = (p: string) => videos.filter((v) => v.playlist === p).length;
@@ -18,7 +17,7 @@ export default function Sidebar({ playlists }: Props) {
     return (
       <button
         key={label}
-        onClick={() => { setActivePlaylist(value); playVideo(null); }}
+        onClick={() => { setActivePlaylist(value); }}
         className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
           active
             ? 'bg-white/10 font-medium text-white'

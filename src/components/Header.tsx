@@ -42,8 +42,8 @@ export default function Header({ onPick }: Props) {
         </svg>
       </button>
 
-      {/* logo */}
-      <div className="flex shrink-0 items-center gap-1 select-none cursor-pointer" onClick={() => { useStore.getState().setActivePlaylist(null); useStore.getState().playVideo(null); }}>
+      {/* logo — click goes home (video keeps playing in mini-player) */}
+      <div className="flex shrink-0 items-center gap-1 select-none cursor-pointer" onClick={() => { useStore.getState().setActivePlaylist(null); useStore.getState().goHome(); }}>
         <svg viewBox="0 0 28 20" className="h-5 w-auto">
           <rect x="0" y="0" width="28" height="20" rx="4" className="fill-red-600" />
           <polygon points="11,4 11,16 21,10" className="fill-white" />
