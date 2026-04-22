@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { VideoEntry, ScanResult } from '../utils/directoryScanner';
+import type { MediaEntry, ScanResult } from '../utils/directoryScanner';
 
 export interface VideoMeta {
   thumbnailUrl?: string;
@@ -7,12 +7,13 @@ export interface VideoMeta {
 }
 
 export type PlayerMode = 'none' | 'full' | 'mini';
-export type View = 'home' | 'playing';
+export type View = 'home' | 'playing' | 'viewing_image';
+export type HomeFilter = 'all' | 'videos' | 'images';
 
 interface StoreState {
   /* library */
   rootName: string;
-  videos: VideoEntry[];
+  videos: MediaEntry[];
   playlists: string[];
 
   /* navigation */
@@ -20,13 +21,17 @@ interface StoreState {
   searchQuery: string;
   sidebarOpen: boolean;
   view: View;
+  homeFilter: HomeFilter;
 
-  /* player */
+  /* video player */
   currentVideoId: string | null;
   playerMode: PlayerMode;
   theaterMode: boolean;
 
-  /* per‑video lazily loaded meta (thumbnail + duration) */
+  /* image viewer */
+  currentImageId: string | null;
+
+  /* per‑item lazily loaded meta */
   videoMeta: Record<string, VideoMeta>;
 
   /* actions */
@@ -35,11 +40,19 @@ interface StoreState {
   setSearchQuery: (q: string) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  setHomeFilter: (f: HomeFilter) => void;
+
+  /* video player actions */
   playVideo: (id: string) => void;
   closePlayer: () => void;
   goHome: () => void;
   toggleMiniPlayer: () => void;
   setTheaterMode: (on: boolean) => void;
+
+  /* image viewer actions */
+  viewImage: (id: string) => void;
+  closeImage: () => void;
+
   setVideoMeta: (id: string, meta: VideoMeta) => void;
 }
 
@@ -52,10 +65,13 @@ export const useStore = create<StoreState>((set) => ({
   searchQuery: '',
   sidebarOpen: true,
   view: 'home',
+  homeFilter: 'all',
 
   currentVideoId: null,
   playerMode: 'none',
   theaterMode: false,
+
+  currentImageId: null,
 
   videoMeta: {},
 
@@ -67,8 +83,10 @@ export const useStore = create<StoreState>((set) => ({
       activePlaylist: null,
       searchQuery: '',
       currentVideoId: null,
+      currentImageId: null,
       playerMode: 'none',
       view: 'home',
+      homeFilter: 'all',
       videoMeta: {},
     }),
 
@@ -76,9 +94,10 @@ export const useStore = create<StoreState>((set) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setHomeFilter: (f) => set({ homeFilter: f }),
 
   playVideo: (id) =>
-    set({ currentVideoId: id, playerMode: 'full', view: 'playing' }),
+    set({ currentVideoId: id, playerMode: 'full', view: 'playing', currentImageId: null }),
 
   closePlayer: () =>
     set({ currentVideoId: null, playerMode: 'none', view: 'home' }),
@@ -92,14 +111,18 @@ export const useStore = create<StoreState>((set) => ({
   toggleMiniPlayer: () =>
     set((s) => {
       if (!s.currentVideoId) return {};
-      if (s.playerMode === 'full')
-        return { playerMode: 'mini', view: 'home' };
-      if (s.playerMode === 'mini')
-        return { playerMode: 'full', view: 'playing' };
+      if (s.playerMode === 'full') return { playerMode: 'mini', view: 'home' };
+      if (s.playerMode === 'mini') return { playerMode: 'full', view: 'playing' };
       return {};
     }),
 
   setTheaterMode: (on) => set({ theaterMode: on }),
+
+  viewImage: (id) =>
+    set({ currentImageId: id, view: 'viewing_image' }),
+
+  closeImage: () =>
+    set({ currentImageId: null, view: 'home' }),
 
   setVideoMeta: (id, meta) =>
     set((s) => ({

@@ -1,6 +1,9 @@
-const VIDEO_EXT = new Set(['mp4', 'webm', 'ogg', 'ogv', 'mov', 'mkv', 'm4v']);
+export type MediaType = 'video' | 'image';
 
-export interface VideoEntry {
+const VIDEO_EXT = new Set(['mp4', 'webm', 'ogg', 'ogv', 'mov', 'mkv', 'm4v']);
+const IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp']);
+
+export interface MediaEntry {
   id: string;
   title: string;
   filename: string;
@@ -9,11 +12,15 @@ export interface VideoEntry {
   handle: FileSystemFileHandle;
   size: number;
   lastModified: number;
+  mediaType: MediaType;
 }
+
+/** @deprecated Use MediaEntry instead */
+export type VideoEntry = MediaEntry;
 
 export interface ScanResult {
   rootName: string;
-  videos: VideoEntry[];
+  videos: MediaEntry[];
   playlists: string[];
 }
 
@@ -31,7 +38,7 @@ export async function scanDirectory(
   root: FileSystemDirectoryHandle,
   onProgress?: (count: number) => void,
 ): Promise<ScanResult> {
-  const videos: VideoEntry[] = [];
+  const entries: MediaEntry[] = [];
   const playlists = new Set<string>();
 
   async function walk(
@@ -41,10 +48,14 @@ export async function scanDirectory(
   ): Promise<void> {
     for await (const [name, handle] of dir.entries() as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind === 'file') {
-        if (!VIDEO_EXT.has(ext(name))) continue;
+        const e = ext(name);
+        const isVideo = VIDEO_EXT.has(e);
+        const isImage = IMAGE_EXT.has(e);
+        if (!isVideo && !isImage) continue;
+
         const fh = handle as FileSystemFileHandle;
         const file = await fh.getFile();
-        videos.push({
+        entries.push({
           id: relPath ? `${relPath}/${name}` : name,
           title: stripExt(name),
           filename: name,
@@ -53,9 +64,10 @@ export async function scanDirectory(
           handle: fh,
           size: file.size,
           lastModified: file.lastModified,
+          mediaType: isVideo ? 'video' : 'image',
         });
         if (topLevel) playlists.add(topLevel);
-        onProgress?.(videos.length);
+        onProgress?.(entries.length);
       } else if (handle.kind === 'directory') {
         const sub = handle as FileSystemDirectoryHandle;
         await walk(
@@ -71,7 +83,7 @@ export async function scanDirectory(
 
   return {
     rootName: root.name,
-    videos,
+    videos: entries,
     playlists: [...playlists].sort((a, b) => a.localeCompare(b)),
   };
 }

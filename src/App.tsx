@@ -6,6 +6,7 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import VideoGrid from './components/VideoGrid';
 import Player from './components/Player';
+import ImageViewer from './components/ImageViewer';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -15,9 +16,11 @@ export default function App() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const view = useStore((s) => s.view);
   const playerMode = useStore((s) => s.playerMode);
+  const homeFilter = useStore((s) => s.homeFilter);
   const setLibrary = useStore((s) => s.setLibrary);
   const toggleMiniPlayer = useStore((s) => s.toggleMiniPlayer);
   const currentVideoId = useStore((s) => s.currentVideoId);
+  const currentImageId = useStore((s) => s.currentImageId);
 
   async function pickFolder() {
     if (!('showDirectoryPicker' in window)) {
@@ -46,14 +49,17 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [currentVideoId, toggleMiniPlayer]);
 
+  /* filtered + searched list */
   const visible = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return videos.filter(
-      (v) =>
-        (!activePlaylist || v.playlist === activePlaylist) &&
-        (!q || v.title.toLowerCase().includes(q)),
-    );
-  }, [videos, activePlaylist, searchQuery]);
+    return videos.filter((v) => {
+      if (activePlaylist && v.playlist !== activePlaylist) return false;
+      if (q && !v.title.toLowerCase().includes(q)) return false;
+      if (homeFilter === 'videos' && v.mediaType !== 'video') return false;
+      if (homeFilter === 'images' && v.mediaType !== 'image') return false;
+      return true;
+    });
+  }, [videos, activePlaylist, searchQuery, homeFilter]);
 
   if (videos.length === 0) return <Welcome onPick={pickFolder} />;
 
@@ -61,10 +67,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white">
-      {/* Header is always visible */}
+      {/* Header always visible */}
       <Header onPick={pickFolder} />
 
-      {/* Home grid (visible when view=home or mini-player is active) */}
+      {/* Home grid */}
       {showHome && (
         <div className="flex pt-14">
           {sidebarOpen && <Sidebar playlists={playlists} />}
@@ -74,8 +80,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Player — rendered whenever there's an active video */}
+      {/* Video player (persistent when active) */}
       {currentVideoId && <Player />}
+
+      {/* Image viewer (full overlay) */}
+      {currentImageId && view === 'viewing_image' && <ImageViewer />}
     </div>
   );
 }

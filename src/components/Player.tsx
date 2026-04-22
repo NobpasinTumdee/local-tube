@@ -68,8 +68,9 @@ export default function Player() {
 
   const upNext = useMemo(() => {
     if (!video) return [];
-    const same = videos.filter((v) => v.id !== video.id && v.playlist === video.playlist);
-    const other = videos.filter((v) => v.id !== video.id && v.playlist !== video.playlist);
+    // STRICT: only videos in Up Next — images must never appear
+    const same = videos.filter((v) => v.id !== video.id && v.playlist === video.playlist && v.mediaType === 'video');
+    const other = videos.filter((v) => v.id !== video.id && v.playlist !== video.playlist && v.mediaType === 'video');
     return [...same, ...other];
   }, [videos, video]);
 

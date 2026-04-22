@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore';
+import type { HomeFilter } from '../store/useStore';
 
 interface Props {
   playlists: string[];
@@ -8,6 +9,8 @@ export default function Sidebar({ playlists }: Props) {
   const activePlaylist = useStore((s) => s.activePlaylist);
   const setActivePlaylist = useStore((s) => s.setActivePlaylist);
   const videos = useStore((s) => s.videos);
+  const homeFilter = useStore((s) => s.homeFilter);
+  const setHomeFilter = useStore((s) => s.setHomeFilter);
 
   const countFor = (p: string) => videos.filter((v) => v.playlist === p).length;
   const homeCount = videos.length;
@@ -17,7 +20,7 @@ export default function Sidebar({ playlists }: Props) {
     return (
       <button
         key={label}
-        onClick={() => { setActivePlaylist(value); }}
+        onClick={() => setActivePlaylist(value)}
         className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
           active
             ? 'bg-white/10 font-medium text-white'
@@ -31,9 +34,39 @@ export default function Sidebar({ playlists }: Props) {
     );
   };
 
+  /* filter pill */
+  const filterBtn = (label: string, val: HomeFilter) => (
+    <button
+      key={val}
+      onClick={() => setHomeFilter(val)}
+      className={`flex-1 rounded-lg py-1.5 text-[11px] font-semibold transition ${
+        homeFilter === val
+          ? 'bg-white/15 text-white'
+          : 'text-white/40 hover:bg-white/5 hover:text-white/70'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <aside className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-white/5 bg-[#0f0f0f] px-3 py-4">
-      {/* Home */}
+
+      {/* ── Filter / Categories ── */}
+      <div className="mb-3">
+        <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-white/25">
+          Show
+        </div>
+        <div className="flex gap-1 rounded-xl border border-white/5 bg-white/[0.03] p-1">
+          {filterBtn('All', 'all')}
+          {filterBtn('Videos', 'videos')}
+          {filterBtn('Images', 'images')}
+        </div>
+      </div>
+
+      <div className="my-1 h-px bg-white/5" />
+
+      {/* ── Home ── */}
       {item(
         'Home',
         null,
