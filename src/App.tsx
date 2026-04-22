@@ -10,8 +10,7 @@ import ImageViewer from './components/ImageViewer';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
-  const playlists = useStore((s) => s.playlists);
-  const activePlaylist = useStore((s) => s.activePlaylist);
+  const currentFolderPath = useStore((s) => s.currentFolderPath);
   const searchQuery = useStore((s) => s.searchQuery);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const view = useStore((s) => s.view);
@@ -49,17 +48,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [currentVideoId, toggleMiniPlayer]);
 
-  /* filtered + searched list */
+  /*
+   * Visible list:
+   * - When searching: search across ALL files regardless of folder
+   * - Otherwise: show only files whose parentPath === currentFolderPath
+   */
   const visible = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return videos.filter((v) => {
-      if (activePlaylist && v.playlist !== activePlaylist) return false;
-      if (q && !v.title.toLowerCase().includes(q)) return false;
+      if (q) {
+        // global search across all files
+        if (!v.title.toLowerCase().includes(q)) return false;
+      } else {
+        // only direct children of current folder
+        if (v.parentPath !== currentFolderPath) return false;
+      }
       if (homeFilter === 'videos' && v.mediaType !== 'video') return false;
       if (homeFilter === 'images' && v.mediaType !== 'image') return false;
       return true;
     });
-  }, [videos, activePlaylist, searchQuery, homeFilter]);
+  }, [videos, currentFolderPath, searchQuery, homeFilter]);
 
   if (videos.length === 0) return <Welcome onPick={pickFolder} />;
 
@@ -67,23 +75,18 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white">
-      {/* Header always visible */}
       <Header onPick={pickFolder} />
 
-      {/* Home grid */}
       {showHome && (
         <div className="flex pt-14">
-          {sidebarOpen && <Sidebar playlists={playlists} />}
-          <main className="flex-1 p-6">
+          {sidebarOpen && <Sidebar />}
+          <main className="flex-1 overflow-y-auto p-6">
             <VideoGrid videos={visible} />
           </main>
         </div>
       )}
 
-      {/* Video player (persistent when active) */}
       {currentVideoId && <Player />}
-
-      {/* Image viewer (full overlay) */}
       {currentImageId && view === 'viewing_image' && <ImageViewer />}
     </div>
   );

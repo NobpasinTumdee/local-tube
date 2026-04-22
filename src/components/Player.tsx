@@ -68,9 +68,13 @@ export default function Player() {
 
   const upNext = useMemo(() => {
     if (!video) return [];
-    // STRICT: only videos in Up Next — images must never appear
-    const same = videos.filter((v) => v.id !== video.id && v.playlist === video.playlist && v.mediaType === 'video');
-    const other = videos.filter((v) => v.id !== video.id && v.playlist !== video.playlist && v.mediaType === 'video');
+    // STRICT: only videos; same direct-parent folder first, then others
+    const same = videos.filter(
+      (v) => v.id !== video.id && v.parentPath === video.parentPath && v.mediaType === 'video',
+    );
+    const other = videos.filter(
+      (v) => v.id !== video.id && v.parentPath !== video.parentPath && v.mediaType === 'video',
+    );
     return [...same, ...other];
   }, [videos, video]);
 

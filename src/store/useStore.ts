@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { MediaEntry, ScanResult } from '../utils/directoryScanner';
+import type { MediaEntry, ScanResult, FolderNode } from '../utils/directoryScanner';
 
 export interface VideoMeta {
   thumbnailUrl?: string;
@@ -15,9 +15,10 @@ interface StoreState {
   rootName: string;
   videos: MediaEntry[];
   playlists: string[];
+  directoryTree: FolderNode | null;
 
   /* navigation */
-  activePlaylist: string | null;
+  currentFolderPath: string;   // '' = root
   searchQuery: string;
   sidebarOpen: boolean;
   view: View;
@@ -31,12 +32,12 @@ interface StoreState {
   /* image viewer */
   currentImageId: string | null;
 
-  /* per‑item lazily loaded meta */
+  /* per-item lazily loaded meta */
   videoMeta: Record<string, VideoMeta>;
 
   /* actions */
   setLibrary: (scan: ScanResult) => void;
-  setActivePlaylist: (p: string | null) => void;
+  setCurrentFolder: (path: string) => void;
   setSearchQuery: (q: string) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
@@ -54,14 +55,19 @@ interface StoreState {
   closeImage: () => void;
 
   setVideoMeta: (id: string, meta: VideoMeta) => void;
+
+  /* legacy compat */
+  activePlaylist: string | null;
+  setActivePlaylist: (p: string | null) => void;
 }
 
 export const useStore = create<StoreState>((set) => ({
   rootName: '',
   videos: [],
   playlists: [],
+  directoryTree: null,
 
-  activePlaylist: null,
+  currentFolderPath: '',
   searchQuery: '',
   sidebarOpen: true,
   view: 'home',
@@ -75,11 +81,17 @@ export const useStore = create<StoreState>((set) => ({
 
   videoMeta: {},
 
+  /* legacy */
+  activePlaylist: null,
+  setActivePlaylist: (p) => set({ activePlaylist: p, currentFolderPath: p ?? '', searchQuery: '' }),
+
   setLibrary: (scan) =>
     set({
       rootName: scan.rootName,
       videos: scan.videos,
       playlists: scan.playlists,
+      directoryTree: scan.directoryTree,
+      currentFolderPath: '',
       activePlaylist: null,
       searchQuery: '',
       currentVideoId: null,
@@ -90,7 +102,7 @@ export const useStore = create<StoreState>((set) => ({
       videoMeta: {},
     }),
 
-  setActivePlaylist: (p) => set({ activePlaylist: p, searchQuery: '' }),
+  setCurrentFolder: (path) => set({ currentFolderPath: path, searchQuery: '' }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -118,11 +130,8 @@ export const useStore = create<StoreState>((set) => ({
 
   setTheaterMode: (on) => set({ theaterMode: on }),
 
-  viewImage: (id) =>
-    set({ currentImageId: id, view: 'viewing_image' }),
-
-  closeImage: () =>
-    set({ currentImageId: null, view: 'home' }),
+  viewImage: (id) => set({ currentImageId: id, view: 'viewing_image' }),
+  closeImage: () => set({ currentImageId: null, view: 'home' }),
 
   setVideoMeta: (id, meta) =>
     set((s) => ({

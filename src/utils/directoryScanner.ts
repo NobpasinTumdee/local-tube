@@ -7,7 +7,11 @@ export interface MediaEntry {
   id: string;
   title: string;
   filename: string;
+  /** Full relative path from root, e.g. "Movies/Action/film.mp4" */
   path: string;
+  /** Direct parent folder path, e.g. "Movies/Action". Empty string = root. */
+  parentPath: string;
+  /** Legacy: top-level folder name or "Home" */
   playlist: string;
   handle: FileSystemFileHandle;
   size: number;
@@ -18,72 +22,118 @@ export interface MediaEntry {
 /** @deprecated Use MediaEntry instead */
 export type VideoEntry = MediaEntry;
 
+/** A node in the recursive folder tree */
+export interface FolderNode {
+  name: string;
+  /** Full path from root, e.g. "Movies/Action". Empty = root. */
+  path: string;
+  children: FolderNode[];
+  /** Total media count (recursive) */
+  mediaCount: number;
+}
+
 export interface ScanResult {
   rootName: string;
   videos: MediaEntry[];
+  /** @deprecated kept for backward compat */
   playlists: string[];
+  directoryTree: FolderNode;
 }
 
-const ext = (n: string) => {
+/* ── helpers ── */
+const getExt = (n: string) => {
   const i = n.lastIndexOf('.');
   return i < 0 ? '' : n.slice(i + 1).toLowerCase();
 };
-
 const stripExt = (n: string) => {
   const i = n.lastIndexOf('.');
   return i < 0 ? n : n.slice(0, i);
 };
 
+/* ── main scanner ── */
 export async function scanDirectory(
   root: FileSystemDirectoryHandle,
   onProgress?: (count: number) => void,
 ): Promise<ScanResult> {
   const entries: MediaEntry[] = [];
-  const playlists = new Set<string>();
+  const topLevelFolders = new Set<string>();
 
+  /** Returns media count for this subtree */
   async function walk(
     dir: FileSystemDirectoryHandle,
-    relPath: string,
-    topLevel: string,
+    relPath: string,       // path of THIS directory (empty = root)
+    topLevel: string,      // first-level folder name (empty = root)
+    node: FolderNode,      // tree node for THIS directory
   ): Promise<void> {
     for await (const [name, handle] of dir.entries() as AsyncIterable<[string, FileSystemHandle]>) {
       if (handle.kind === 'file') {
-        const e = ext(name);
+        const e = getExt(name);
         const isVideo = VIDEO_EXT.has(e);
         const isImage = IMAGE_EXT.has(e);
         if (!isVideo && !isImage) continue;
 
         const fh = handle as FileSystemFileHandle;
         const file = await fh.getFile();
+        const filePath = relPath ? `${relPath}/${name}` : name;
+
         entries.push({
-          id: relPath ? `${relPath}/${name}` : name,
+          id: filePath,
           title: stripExt(name),
           filename: name,
-          path: relPath ? `${relPath}/${name}` : name,
+          path: filePath,
+          parentPath: relPath,
           playlist: topLevel || 'Home',
           handle: fh,
           size: file.size,
           lastModified: file.lastModified,
           mediaType: isVideo ? 'video' : 'image',
         });
-        if (topLevel) playlists.add(topLevel);
+        if (topLevel) topLevelFolders.add(topLevel);
+        node.mediaCount++;
         onProgress?.(entries.length);
+
       } else if (handle.kind === 'directory') {
         const sub = handle as FileSystemDirectoryHandle;
+        const childPath = relPath ? `${relPath}/${name}` : name;
+        const childNode: FolderNode = { name, path: childPath, children: [], mediaCount: 0 };
+        node.children.push(childNode);
+
         await walk(
           sub,
-          relPath ? `${relPath}/${name}` : name,
+          childPath,
           topLevel || name,
+          childNode,
         );
+
+        // bubble up count
+        node.mediaCount += childNode.mediaCount;
       }
     }
+
+    // sort children alphabetically
+    node.children.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  await walk(root, '', '');
+  const rootNode: FolderNode = { name: root.name, path: '', children: [], mediaCount: 0 };
+  await walk(root, '', '', rootNode);
 
   return {
     rootName: root.name,
     videos: entries,
-    playlists: [...playlists].sort((a, b) => a.localeCompare(b)),
+    playlists: [...topLevelFolders].sort((a, b) => a.localeCompare(b)),
+    directoryTree: rootNode,
   };
+}
+
+/** Returns immediate child FolderNodes of a given path */
+export function getChildFolders(tree: FolderNode, folderPath: string): FolderNode[] {
+  if (folderPath === '') return tree.children;
+  const parts = folderPath.split('/');
+  let node: FolderNode = tree;
+  for (const part of parts) {
+    const next = node.children.find((c) => c.name === part);
+    if (!next) return [];
+    node = next;
+  }
+  return node.children;
 }
