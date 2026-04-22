@@ -9,6 +9,7 @@ export interface VideoMeta {
 export type PlayerMode = 'none' | 'full' | 'mini';
 export type View = 'home' | 'playing' | 'viewing_image';
 export type HomeFilter = 'all' | 'videos' | 'images';
+export type ViewMode = 'nested' | 'flat';
 
 interface StoreState {
   /* library */
@@ -23,6 +24,7 @@ interface StoreState {
   sidebarOpen: boolean;
   view: View;
   homeFilter: HomeFilter;
+  viewMode: ViewMode;
 
   /* video player */
   currentVideoId: string | null;
@@ -42,6 +44,7 @@ interface StoreState {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setHomeFilter: (f: HomeFilter) => void;
+  setViewMode: (m: ViewMode) => void;
 
   /* video player actions */
   playVideo: (id: string) => void;
@@ -72,6 +75,7 @@ export const useStore = create<StoreState>((set) => ({
   sidebarOpen: true,
   view: 'home',
   homeFilter: 'all',
+  viewMode: 'nested',
 
   currentVideoId: null,
   playerMode: 'none',
@@ -99,6 +103,7 @@ export const useStore = create<StoreState>((set) => ({
       playerMode: 'none',
       view: 'home',
       homeFilter: 'all',
+      viewMode: 'nested',
       videoMeta: {},
     }),
 
@@ -107,6 +112,7 @@ export const useStore = create<StoreState>((set) => ({
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHomeFilter: (f) => set({ homeFilter: f }),
+  setViewMode: (m) => set({ viewMode: m }),
 
   playVideo: (id) =>
     set({ currentVideoId: id, playerMode: 'full', view: 'playing', currentImageId: null }),

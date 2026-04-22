@@ -1,6 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { useStore } from './store/useStore';
-import { scanDirectory } from './utils/directoryScanner';
+import { scanDirectory, getAllFilesRecursively } from './utils/directoryScanner';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -48,26 +48,35 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [currentVideoId, toggleMiniPlayer]);
 
+  const viewMode = useStore((s) => s.viewMode);
+
   /*
-   * Visible list:
-   * - When searching: search across ALL files regardless of folder
-   * - Otherwise: show only files whose parentPath === currentFolderPath
+   * Visible list rules:
+   * - Searching: global across all files (both modes)
+   * - nested: only direct children (parentPath === currentFolderPath)
+   * - flat:   all files recursively under currentFolderPath
    */
   const visible = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const idSet =
+      !q && viewMode === 'flat'
+        ? new Set(getAllFilesRecursively(videos, currentFolderPath))
+        : null;
+
     return videos.filter((v) => {
       if (q) {
-        // global search across all files
         if (!v.title.toLowerCase().includes(q)) return false;
+      } else if (viewMode === 'flat') {
+        if (!idSet!.has(v.id)) return false;
       } else {
-        // only direct children of current folder
+        // nested: direct children only
         if (v.parentPath !== currentFolderPath) return false;
       }
       if (homeFilter === 'videos' && v.mediaType !== 'video') return false;
       if (homeFilter === 'images' && v.mediaType !== 'image') return false;
       return true;
     });
-  }, [videos, currentFolderPath, searchQuery, homeFilter]);
+  }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode]);
 
   if (videos.length === 0) return <Welcome onPick={pickFolder} />;
 

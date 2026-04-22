@@ -137,3 +137,36 @@ export function getChildFolders(tree: FolderNode, folderPath: string): FolderNod
   }
   return node.children;
 }
+
+/** Navigates to the FolderNode at the given path ('' = root). Returns null if not found. */
+export function getFolderNode(tree: FolderNode, folderPath: string): FolderNode | null {
+  if (folderPath === '') return tree;
+  const parts = folderPath.split('/');
+  let node: FolderNode = tree;
+  for (const part of parts) {
+    const next = node.children.find((c) => c.name === part);
+    if (!next) return null;
+    node = next;
+  }
+  return node;
+}
+
+/**
+ * Recursively collect all MediaEntry IDs that live under a given folder node.
+ * The caller passes in the full flat `videos` array and filters by matching path prefix.
+ */
+export function getAllFilesRecursively(
+  allFiles: readonly { id: string; parentPath: string }[],
+  folderPath: string,
+): string[] {
+  // A file belongs to this subtree if its parentPath equals folderPath
+  // or starts with folderPath + '/'
+  const prefix = folderPath === '' ? '' : folderPath + '/';
+  return allFiles
+    .filter((f) =>
+      folderPath === ''
+        ? true
+        : f.parentPath === folderPath || f.parentPath.startsWith(prefix),
+    )
+    .map((f) => f.id);
+}
