@@ -11,6 +11,8 @@ export type View = 'home' | 'playing' | 'viewing_image';
 export type HomeFilter = 'all' | 'videos' | 'images';
 export type ViewMode = 'nested' | 'flat';
 
+const RECENT_LIMIT = 12;
+
 interface StoreState {
   /* library */
   rootName: string;
@@ -37,6 +39,16 @@ interface StoreState {
   /* per-item lazily loaded meta */
   videoMeta: Record<string, VideoMeta>;
 
+  /*
+   * Ordered list of video ids that represent the CURRENT filtered view.
+   * App.tsx keeps this in sync with its `visible` list so the player can do
+   * index-based sequential playback (files[currentIndex + 1]).
+   */
+  playbackQueue: string[];
+
+  /* Most recently played video ids (newest first) */
+  recentVideoIds: string[];
+
   /* actions */
   setLibrary: (scan: ScanResult) => void;
   setCurrentFolder: (path: string) => void;
@@ -59,12 +71,16 @@ interface StoreState {
 
   setVideoMeta: (id: string, meta: VideoMeta) => void;
 
+  /* queue / recent */
+  setPlaybackQueue: (ids: string[]) => void;
+  getNextVideoId: () => string | null;
+
   /* legacy compat */
   activePlaylist: string | null;
   setActivePlaylist: (p: string | null) => void;
 }
 
-export const useStore = create<StoreState>((set) => ({
+export const useStore = create<StoreState>((set, get) => ({
   rootName: '',
   videos: [],
   playlists: [],
@@ -84,6 +100,9 @@ export const useStore = create<StoreState>((set) => ({
   currentImageId: null,
 
   videoMeta: {},
+
+  playbackQueue: [],
+  recentVideoIds: [],
 
   /* legacy */
   activePlaylist: null,
@@ -105,8 +124,15 @@ export const useStore = create<StoreState>((set) => ({
       homeFilter: 'all',
       viewMode: 'nested',
       videoMeta: {},
+      playbackQueue: [],
+      recentVideoIds: [],
     }),
 
+  /*
+   * Navigating to a folder should NOT reset currentVideoId / playerMode —
+   * that lets the mini-player keep playing while the user browses.
+   * We also clear the search so the folder view is what the user expects.
+   */
   setCurrentFolder: (path) => set({ currentFolderPath: path, searchQuery: '' }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -115,8 +141,19 @@ export const useStore = create<StoreState>((set) => ({
   setViewMode: (m) => set({ viewMode: m }),
 
   playVideo: (id) =>
-    set({ currentVideoId: id, playerMode: 'full', view: 'playing', currentImageId: null }),
+    set((s) => ({
+      currentVideoId: id,
+      playerMode: 'full',
+      view: 'playing',
+      currentImageId: null,
+      /* track recent (move-to-front, cap at RECENT_LIMIT) */
+      recentVideoIds: [id, ...s.recentVideoIds.filter((x) => x !== id)].slice(0, RECENT_LIMIT),
+    })),
 
+  /*
+   * Close player but KEEP folder/search/filter state so the user returns to
+   * exactly the browsing context they left.
+   */
   closePlayer: () =>
     set({ currentVideoId: null, playerMode: 'none', view: 'home' }),
 
@@ -143,4 +180,28 @@ export const useStore = create<StoreState>((set) => ({
     set((s) => ({
       videoMeta: { ...s.videoMeta, [id]: { ...s.videoMeta[id], ...meta } },
     })),
+
+  setPlaybackQueue: (ids) => {
+    const cur = get().playbackQueue;
+    if (cur.length === ids.length && cur.every((x, i) => x === ids[i])) return;
+    set({ playbackQueue: ids });
+  },
+
+  /*
+   * Returns the id of the next video in the current playback queue.
+   * - Index-based: files[currentIndex + 1]
+   * - If currentVideoId isn't in the queue (user started from a different view),
+   *   fall back to the first video in the queue (or null if empty).
+   * - At the end of the queue we loop back to the first item so playback never
+   *   dead-ends — callers that prefer "stop" can compare against the first id.
+   */
+  getNextVideoId: () => {
+    const { playbackQueue, currentVideoId } = get();
+    if (playbackQueue.length === 0) return null;
+    if (!currentVideoId) return playbackQueue[0];
+    const idx = playbackQueue.indexOf(currentVideoId);
+    if (idx < 0) return playbackQueue[0];
+    if (idx >= playbackQueue.length - 1) return playbackQueue[0]; // loop
+    return playbackQueue[idx + 1];
+  },
 }));

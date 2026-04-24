@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PlayCircle, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
@@ -49,6 +50,8 @@ const MiniIcon = () => (
   </svg>
 );
 
+const COUNTDOWN_SECS = 5;
+
 /* ─────────── Player ─────────── */
 export default function Player() {
   const playerMode = useStore((s) => s.playerMode);
@@ -60,23 +63,58 @@ export default function Player() {
   const closePlayer = useStore((s) => s.closePlayer);
   const playVideo = useStore((s) => s.playVideo);
   const toggleMiniPlayer = useStore((s) => s.toggleMiniPlayer);
+  const playbackQueue = useStore((s) => s.playbackQueue);
+  const getNextVideoId = useStore((s) => s.getNextVideoId);
 
   const video = useMemo(
     () => videos.find((v) => v.id === currentVideoId),
     [videos, currentVideoId],
   );
 
+  /*
+   * Next video = files[currentIndex + 1] within the current playback queue
+   * (the filtered list the user is browsing). Falls back to first video if
+   * we're at the end or the current video isn't in the queue.
+   */
+  const nextVideo = useMemo(() => {
+    if (!video) return null;
+    const nextId = (() => {
+      if (playbackQueue.length === 0) return null;
+      const idx = playbackQueue.indexOf(video.id);
+      if (idx < 0) return playbackQueue[0] ?? null;
+      if (idx >= playbackQueue.length - 1) {
+        // at end — loop to first, but only if there's more than one item
+        return playbackQueue.length > 1 ? playbackQueue[0] : null;
+      }
+      return playbackQueue[idx + 1];
+    })();
+    if (!nextId || nextId === video.id) return null;
+    return videos.find((v) => v.id === nextId) ?? null;
+  }, [video, playbackQueue, videos]);
+
+  /* "Up Next" sidebar list: start from next in queue, then remaining, then fill with other videos */
   const upNext = useMemo(() => {
     if (!video) return [];
-    // STRICT: only videos; same direct-parent folder first, then others
-    const same = videos.filter(
-      (v) => v.id !== video.id && v.parentPath === video.parentPath && v.mediaType === 'video',
-    );
-    const other = videos.filter(
-      (v) => v.id !== video.id && v.parentPath !== video.parentPath && v.mediaType === 'video',
-    );
-    return [...same, ...other];
-  }, [videos, video]);
+    const seen = new Set<string>([video.id]);
+    const out: VideoEntry[] = [];
+    if (playbackQueue.length > 0) {
+      const idx = playbackQueue.indexOf(video.id);
+      const order = idx < 0
+        ? playbackQueue
+        : [...playbackQueue.slice(idx + 1), ...playbackQueue.slice(0, idx)];
+      for (const id of order) {
+        if (seen.has(id)) continue;
+        const v = videos.find((x) => x.id === id);
+        if (v && v.mediaType === 'video') { out.push(v); seen.add(id); }
+      }
+    }
+    // fallback fill
+    for (const v of videos) {
+      if (seen.has(v.id) || v.mediaType !== 'video') continue;
+      out.push(v); seen.add(v.id);
+    }
+    return out;
+  }, [videos, video, playbackQueue]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,6 +128,44 @@ export default function Player() {
   const [muted, setMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  /* ── Countdown overlay state ── */
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval>>();
+
+  const clearCountdown = useCallback(() => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = undefined;
+    }
+    setCountdown(null);
+  }, []);
+
+  const startCountdown = useCallback(() => {
+    if (!nextVideo) return;
+    clearCountdown();
+    setCountdown(COUNTDOWN_SECS);
+    countdownTimerRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c == null) return c;
+        if (c <= 1) {
+          if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+          countdownTimerRef.current = undefined;
+          /* advance to next */
+          const nextId = getNextVideoId();
+          if (nextId) playVideo(nextId);
+          return null;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  }, [nextVideo, getNextVideoId, playVideo, clearCountdown]);
+
+  /* Stop countdown if the current video changes (user clicked something, or countdown resolved) */
+  useEffect(() => {
+    clearCountdown();
+    return () => clearCountdown();
+  }, [currentVideoId, clearCountdown]);
 
   /* ── Load video blob ── */
   useEffect(() => {
@@ -126,7 +202,11 @@ export default function Player() {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
       const el = videoRef.current;
       if (!el) return;
-      if (e.key === 'Escape') { closePlayer(); return; }
+      if (e.key === 'Escape') {
+        if (countdown != null) { clearCountdown(); return; }
+        closePlayer();
+        return;
+      }
       /* only handle player shortcuts in full mode */
       if (playerMode !== 'full') return;
       switch (e.key) {
@@ -165,7 +245,7 @@ export default function Player() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closePlayer, playerMode, theaterMode, setTheaterMode]);
+  }, [closePlayer, playerMode, theaterMode, setTheaterMode, countdown, clearCountdown]);
 
   /* controls auto‑hide (full mode only) */
   const resetHideTimer = useCallback(() => {
@@ -203,15 +283,6 @@ export default function Player() {
 
   const isFull = playerMode === 'full';
   const progress = duration > 0 ? (current / duration) * 100 : 0;
-
-  /*
-   * ARCHITECTURE: The <video> element is ALWAYS at the same tree position
-   * so React reuses the DOM node across mode switches (no restart).
-   *
-   * Outer wrapper switches between full-screen overlay and small fixed box.
-   * All conditional children (title bar, up-next, mini bar) are placed AFTER
-   * the video in the tree so they don't affect reconciliation.
-   */
 
   return (
     <>
@@ -260,12 +331,29 @@ export default function Player() {
               onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
-              onEnded={() => { if (upNext[0]) playVideo(upNext[0].id); }}
+              onEnded={() => {
+                if (nextVideo) startCountdown();
+              }}
               onClick={() => { const el = videoRef.current!; el.paused ? el.play() : el.pause(); }}
             />
 
+            {/* ── Countdown overlay (full mode only) ── */}
+            {isFull && countdown != null && nextVideo && (
+              <CountdownOverlay
+                seconds={countdown}
+                total={COUNTDOWN_SECS}
+                next={nextVideo}
+                thumbnail={videoMeta[nextVideo.id]?.thumbnailUrl}
+                onPlayNow={() => {
+                  clearCountdown();
+                  playVideo(nextVideo.id);
+                }}
+                onCancel={clearCountdown}
+              />
+            )}
+
             {/* ── Full-mode controls overlay ── */}
-            {isFull && (
+            {isFull && countdown == null && (
               <div
                 className={`absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 ${
                   showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
@@ -381,6 +469,83 @@ export default function Player() {
   );
 }
 
+/* ─── Countdown Overlay ─── */
+function CountdownOverlay({
+  seconds,
+  total,
+  next,
+  thumbnail,
+  onPlayNow,
+  onCancel,
+}: {
+  seconds: number;
+  total: number;
+  next: VideoEntry;
+  thumbnail?: string;
+  onPlayNow: () => void;
+  onCancel: () => void;
+}) {
+  const pct = ((total - seconds) / total) * 100;
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.25 }}
+      className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+    >
+      <div className="flex w-full max-w-lg flex-col items-center gap-4 px-6 py-5 text-center">
+        <p className="text-sm font-medium uppercase tracking-widest text-white/60">
+          Up next in <span className="text-white">{seconds}</span>...
+        </p>
+
+        {/* Thumbnail preview */}
+        <div className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-white/5 shadow-2xl shadow-black/50">
+          <div className="relative aspect-video w-full">
+            {thumbnail ? (
+              <img src={thumbnail} alt={next.title} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <PlayCircle className="h-12 w-12 text-white/20" />
+              </div>
+            )}
+            {/* dark fade at bottom for title legibility */}
+            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 px-4 pb-3 text-left">
+              <p className="truncate text-base font-semibold text-white">{next.title}</p>
+              <p className="truncate text-xs text-white/60">{next.playlist}</p>
+            </div>
+          </div>
+          {/* countdown progress bar */}
+          <div className="h-[3px] w-full bg-white/10">
+            <div
+              className="h-full bg-red-500 transition-[width] duration-1000 ease-linear"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onCancel}
+            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-5 py-2 text-sm font-medium text-white/80 backdrop-blur transition hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </button>
+          <button
+            onClick={onPlayNow}
+            className="flex items-center gap-1.5 rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500"
+          >
+            <PlayCircle className="h-4 w-4" />
+            Play Now
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 /* ─── Up Next item ─── */
 function UpNextItem({ video, meta, onPlay }: { video: VideoEntry; meta?: { thumbnailUrl?: string; duration?: number }; onPlay: () => void }) {
   return (
@@ -390,9 +555,7 @@ function UpNextItem({ video, meta, onPlay }: { video: VideoEntry; meta?: { thumb
           <img src={meta.thumbnailUrl} alt={video.title} className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white/10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="2" y="2" width="20" height="20" rx="2" /><path d="m10 9 5 3-5 3V9z" />
-            </svg>
+            <PlayCircle className="h-6 w-6 text-white/10" />
           </div>
         )}
         {meta?.duration != null && meta.duration > 0 && (

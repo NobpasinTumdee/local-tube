@@ -49,6 +49,7 @@ export default function App() {
   }, [currentVideoId, toggleMiniPlayer]);
 
   const viewMode = useStore((s) => s.viewMode);
+  const setPlaybackQueue = useStore((s) => s.setPlaybackQueue);
 
   /*
    * Visible list rules:
@@ -77,6 +78,15 @@ export default function App() {
       return true;
     });
   }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode]);
+
+  /*
+   * Keep the player's playback queue aligned with what the user is browsing,
+   * so "next video" = files[currentIndex + 1] within the current folder/filter.
+   * Videos only — images never auto-advance.
+   */
+  useEffect(() => {
+    setPlaybackQueue(visible.filter((v) => v.mediaType === 'video').map((v) => v.id));
+  }, [visible, setPlaybackQueue]);
 
   if (videos.length === 0) return <Welcome onPick={pickFolder} />;
 
