@@ -1,3 +1,5 @@
+import WebRTCBar from './WebRTCBar';
+
 interface Props {
   onPick: () => void;
 }
@@ -5,6 +7,16 @@ interface Props {
 export default function Welcome({ onPick }: Props) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-base px-4">
+      {/*
+       * Joining a watch party doesn't require a local library — a guest may
+       * only want to receive files or watch someone's broadcast. So the P2P
+       * entry point (and its kill switch) live here too, not just in the
+       * header that appears after a folder is picked.
+       */}
+      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
+        <WebRTCBar />
+      </div>
+
       <div className="relative flex w-full max-w-lg flex-col items-center gap-8 rounded-2xl border border-content/5 bg-content/[0.03] p-12 text-center backdrop-blur-md">
         {/* decorative glow */}
         <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 h-48 w-80 rounded-full bg-primary/20 blur-[100px]" />
@@ -42,6 +54,11 @@ export default function Welcome({ onPick }: Props) {
 
         <p className="text-[11px] text-content/25">
           Requires Chrome or Edge (File System Access API)
+        </p>
+
+        <p className="text-[11px] leading-relaxed text-content/25">
+          Invited to a watch party? Use the share button in the corner to join a room —
+          no folder needed.
         </p>
       </div>
     </div>

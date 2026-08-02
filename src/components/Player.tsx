@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { PlayCircle, X, Sparkles } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import AmbientGlow from './AmbientGlow';
+import { setActiveVideoElement } from '../services/mediaElementRegistry';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
 
@@ -209,6 +210,16 @@ export default function Player() {
     const el = videoRef.current;
     if (!el || !src) return;
     el.play().catch(() => {});
+  }, [src]);
+
+  /*
+   * Publish this element so the (opt-in) P2P broadcast feature can capture
+   * it. This only hands over a DOM reference — nothing observes or streams
+   * it unless the user explicitly starts a broadcast.
+   */
+  useEffect(() => {
+    setActiveVideoElement(videoRef.current);
+    return () => setActiveVideoElement(null);
   }, [src]);
 
   /* ── keyboard (player-scoped, 'i' handled in App) ── */

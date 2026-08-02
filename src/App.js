@@ -1,4 +1,4 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
 import { useMemo, useEffect } from 'react';
 import { useStore } from './store/useStore';
 import { scanDirectory, getAllFilesRecursively } from './utils/directoryScanner';
@@ -11,6 +11,7 @@ import ImageViewer from './components/ImageViewer';
 import MediaViewer from './components/MediaViewer';
 import FilterBar from './components/FilterBar';
 import GridSettingsBar from './components/GridSettingsBar';
+import BroadcastView from './components/BroadcastView';
 export default function App() {
     const videos = useStore((s) => s.videos);
     const currentFolderPath = useStore((s) => s.currentFolderPath);
@@ -119,9 +120,12 @@ export default function App() {
     useEffect(() => {
         setPlaybackQueue(visible.filter((v) => v.mediaType === 'video').map((v) => v.id));
     }, [visible, setPlaybackQueue]);
-    if (videos.length === 0)
-        return _jsx(Welcome, { onPick: pickFolder });
+    /* No library yet — but a guest with no folder can still be watching a
+     * peer's broadcast, so the viewer is mounted on this branch too. */
+    if (videos.length === 0) {
+        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onPick: pickFolder }), _jsx(BroadcastView, {})] }));
+    }
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {}), _jsx(BroadcastView, {})] }));
 }

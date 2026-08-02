@@ -11,6 +11,7 @@ import ImageViewer from './components/ImageViewer';
 import MediaViewer from './components/MediaViewer';
 import FilterBar from './components/FilterBar';
 import GridSettingsBar from './components/GridSettingsBar';
+import BroadcastView from './components/BroadcastView';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -122,7 +123,16 @@ export default function App() {
     setPlaybackQueue(visible.filter((v) => v.mediaType === 'video').map((v) => v.id));
   }, [visible, setPlaybackQueue]);
 
-  if (videos.length === 0) return <Welcome onPick={pickFolder} />;
+  /* No library yet — but a guest with no folder can still be watching a
+   * peer's broadcast, so the viewer is mounted on this branch too. */
+  if (videos.length === 0) {
+    return (
+      <>
+        <Welcome onPick={pickFolder} />
+        <BroadcastView />
+      </>
+    );
+  }
 
   /* Layout mode keeps the library visible so users can fill slots. */
   const showHome = layoutMode || view === 'home' || playerMode === 'mini';
@@ -154,6 +164,9 @@ export default function App() {
       {/* Single-video player is suppressed while the multi-grid is active */}
       {!layoutMode && currentVideoId && <Player />}
       {currentImageId && view === 'viewing_image' && <ImageViewer />}
+
+      {/* Renders only while an authenticated peer is actually broadcasting */}
+      <BroadcastView />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import ThemeSwitcher from './ThemeSwitcher';
 import LayoutSelector from './LayoutSelector';
 import SettingsModal from './SettingsModal';
+import WebRTCBar from './WebRTCBar';
 
 interface Props {
   onPick: () => void;
@@ -109,6 +110,9 @@ export default function Header({ onPick }: Props) {
         </svg>
         <span className="max-w-[120px] truncate">{rootName || 'Folder'}</span>
       </button>
+
+      {/* peer-to-peer sharing (opt-in — nothing runs until it's switched on) */}
+      <WebRTCBar />
 
       {/* multi-video layout */}
       <LayoutSelector />

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { PlayCircle, X, Sparkles } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import AmbientGlow from './AmbientGlow';
+import { setActiveVideoElement } from '../services/mediaElementRegistry';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 /* ───── Icons ───── */
 const PlayIcon = () => (_jsx("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-5 w-5", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M8 5v14l11-7z" }) }));
@@ -178,6 +179,15 @@ export default function Player() {
         if (!el || !src)
             return;
         el.play().catch(() => { });
+    }, [src]);
+    /*
+     * Publish this element so the (opt-in) P2P broadcast feature can capture
+     * it. This only hands over a DOM reference — nothing observes or streams
+     * it unless the user explicitly starts a broadcast.
+     */
+    useEffect(() => {
+        setActiveVideoElement(videoRef.current);
+        return () => setActiveVideoElement(null);
     }, [src]);
     /* ── keyboard (player-scoped, 'i' handled in App) ── */
     useEffect(() => {
