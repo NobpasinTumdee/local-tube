@@ -295,7 +295,7 @@ export default function Player() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="fixed inset-0 z-[99] bg-[#0f0f0f]"
+            className="fixed inset-0 z-[99] bg-base"
           />
         )}
       </AnimatePresence>
@@ -306,8 +306,8 @@ export default function Player() {
         transition={{ type: 'spring', damping: 28, stiffness: 320, mass: 0.8 }}
         className={
           isFull
-            ? 'fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-[#0f0f0f] lg:flex-row'
-            : 'fixed bottom-5 right-5 z-[200] flex w-[340px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#181818] shadow-2xl shadow-black/60'
+            ? 'fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-base lg:flex-row'
+            : 'fixed bottom-5 right-5 z-[200] flex w-[340px] flex-col overflow-hidden rounded-xl border border-content/10 bg-surface shadow-2xl shadow-black/60'
         }
       >
         {/* ── Video area (always first child ⇒ persistent DOM) ── */}
@@ -361,23 +361,23 @@ export default function Player() {
               >
                 {/* progress */}
                 <div ref={progressRef} className="group/bar relative flex h-5 cursor-pointer items-center" onClick={seek}>
-                  <div className="h-[3px] w-full rounded-full bg-white/20 transition-all group-hover/bar:h-[5px]">
-                    <div className="h-full rounded-full bg-red-600 transition-all" style={{ width: `${progress}%` }} />
+                  <div className="h-[3px] w-full rounded-full bg-content/20 transition-all group-hover/bar:h-[5px]">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
                   </div>
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-red-600 opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
+                    className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-primary opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
                     style={{ left: `calc(${progress}% - 7px)` }}
                   />
                 </div>
 
                 {/* buttons */}
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { const el = videoRef.current!; el.paused ? el.play() : el.pause(); }} className="flex h-9 w-9 items-center justify-center rounded-full text-white/90 transition hover:bg-white/10" aria-label={playing ? 'Pause' : 'Play'}>
+                  <button onClick={() => { const el = videoRef.current!; el.paused ? el.play() : el.pause(); }} className="flex h-9 w-9 items-center justify-center rounded-full text-content/90 transition hover:bg-content/10" aria-label={playing ? 'Pause' : 'Play'}>
                     {playing ? <PauseIcon /> : <PlayIcon />}
                   </button>
 
                   <div className="group/vol flex items-center gap-1">
-                    <button onClick={() => { const el = videoRef.current!; el.muted = !el.muted; setMuted(el.muted); }} className="flex h-9 w-9 items-center justify-center rounded-full text-white/90 transition hover:bg-white/10" aria-label="Mute">
+                    <button onClick={() => { const el = videoRef.current!; el.muted = !el.muted; setMuted(el.muted); }} className="flex h-9 w-9 items-center justify-center rounded-full text-content/90 transition hover:bg-content/10" aria-label="Mute">
                       <VolumeIcon level={muted ? 0 : volume} />
                     </button>
                     <input type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume}
@@ -386,19 +386,19 @@ export default function Player() {
                     />
                   </div>
 
-                  <span className="ml-1 text-xs tabular-nums text-white/70">
+                  <span className="ml-1 text-xs tabular-nums text-content/70">
                     {formatDuration(current)} / {formatDuration(duration)}
                   </span>
 
                   <div className="flex-1" />
 
                   {/* mini-player button */}
-                  <button onClick={toggleMiniPlayer} className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Mini player (i)" title="Mini player (i)">
+                  <button onClick={toggleMiniPlayer} className="flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content" aria-label="Mini player (i)" title="Mini player (i)">
                     <MiniIcon />
                   </button>
-                  <button onClick={togglePip} className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Picture in Picture"><PipIcon /></button>
-                  <button onClick={() => setTheaterMode(!theaterMode)} className={`flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white/10 ${theaterMode ? 'text-white' : 'text-white/70 hover:text-white'}`} aria-label="Theater mode"><TheaterIcon /></button>
-                  <button onClick={toggleFullscreen} className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Fullscreen"><FullscreenIcon /></button>
+                  <button onClick={togglePip} className="flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content" aria-label="Picture in Picture"><PipIcon /></button>
+                  <button onClick={() => setTheaterMode(!theaterMode)} className={`flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${theaterMode ? 'text-content' : 'text-content/70 hover:text-content'}`} aria-label="Theater mode"><TheaterIcon /></button>
+                  <button onClick={toggleFullscreen} className="flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content" aria-label="Fullscreen"><FullscreenIcon /></button>
                 </div>
               </div>
             )}
@@ -408,8 +408,8 @@ export default function Player() {
           {isFull && (
             <div className="flex items-start gap-3 px-4 py-4 lg:px-6">
               <div className="flex-1 min-w-0">
-                <h1 className="text-lg font-semibold leading-snug text-white lg:text-xl">{video.title}</h1>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-white/50">
+                <h1 className="text-lg font-semibold leading-snug text-content lg:text-xl">{video.title}</h1>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-content/50">
                   <span>{video.playlist}</span>
                   <span>•</span>
                   <span>{formatSize(video.size)}</span>
@@ -417,7 +417,7 @@ export default function Player() {
                   <span>{formatRelative(video.lastModified)}</span>
                 </div>
               </div>
-              <button onClick={closePlayer} className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white" aria-label="Close player">
+              <button onClick={closePlayer} className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content" aria-label="Close player">
                 <CloseIcon />
               </button>
             </div>
@@ -426,40 +426,40 @@ export default function Player() {
 
         {/* ── Full‑mode Up Next sidebar ── */}
         {isFull && (
-          <aside className={`shrink-0 overflow-y-auto border-t border-white/5 bg-[#0f0f0f] px-3 py-4 lg:border-l lg:border-t-0 ${theaterMode ? 'w-full lg:w-96' : 'w-full lg:w-96'}`}>
-            <h2 className="mb-3 px-2 text-sm font-semibold text-white/60">Up Next</h2>
+          <aside className={`shrink-0 overflow-y-auto border-t border-content/5 bg-base px-3 py-4 lg:border-l lg:border-t-0 ${theaterMode ? 'w-full lg:w-96' : 'w-full lg:w-96'}`}>
+            <h2 className="mb-3 px-2 text-sm font-semibold text-content/60">Up Next</h2>
             <div className="flex flex-col gap-2">
               {upNext.slice(0, 50).map((v) => (
                 <UpNextItem key={v.id} video={v} meta={videoMeta[v.id]} onPlay={() => playVideo(v.id)} />
               ))}
-              {upNext.length === 0 && <p className="px-2 py-8 text-center text-sm text-white/30">No more videos</p>}
+              {upNext.length === 0 && <p className="px-2 py-8 text-center text-sm text-content/30">No more videos</p>}
             </div>
           </aside>
         )}
 
         {/* ── Mini‑player bar ── */}
         {!isFull && (
-          <div className="flex items-center gap-1 bg-[#181818] px-2 py-1.5">
+          <div className="flex items-center gap-1 bg-surface px-2 py-1.5">
             {/* play/pause */}
-            <button onClick={() => { const el = videoRef.current!; el.paused ? el.play() : el.pause(); }} className="flex h-8 w-8 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10" aria-label={playing ? 'Pause' : 'Play'}>
+            <button onClick={() => { const el = videoRef.current!; el.paused ? el.play() : el.pause(); }} className="flex h-8 w-8 items-center justify-center rounded-full text-content/80 transition hover:bg-content/10" aria-label={playing ? 'Pause' : 'Play'}>
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
 
             {/* title */}
-            <span className="mx-1 flex-1 truncate text-xs font-medium text-white/70">{video.title}</span>
+            <span className="mx-1 flex-1 truncate text-xs font-medium text-content/70">{video.title}</span>
 
             {/* progress (thin line at top of mini bar) */}
-            <div className="absolute inset-x-0 top-0 h-[2px] bg-white/10">
-              <div className="h-full bg-red-600 transition-all" style={{ width: `${progress}%` }} />
+            <div className="absolute inset-x-0 top-0 h-[2px] bg-content/10">
+              <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
             </div>
 
             {/* expand */}
-            <button onClick={toggleMiniPlayer} className="flex h-8 w-8 items-center justify-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white" aria-label="Expand" title="Expand (i)">
+            <button onClick={toggleMiniPlayer} className="flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content" aria-label="Expand" title="Expand (i)">
               <ExpandIcon />
             </button>
 
             {/* close */}
-            <button onClick={closePlayer} className="flex h-8 w-8 items-center justify-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white" aria-label="Close">
+            <button onClick={closePlayer} className="flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content" aria-label="Close">
               <CloseIcon />
             </button>
           </div>
@@ -494,31 +494,31 @@ function CountdownOverlay({
       className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm"
     >
       <div className="flex w-full max-w-lg flex-col items-center gap-4 px-6 py-5 text-center">
-        <p className="text-sm font-medium uppercase tracking-widest text-white/60">
-          Up next in <span className="text-white">{seconds}</span>...
+        <p className="text-sm font-medium uppercase tracking-widest text-content/60">
+          Up next in <span className="text-content">{seconds}</span>...
         </p>
 
         {/* Thumbnail preview */}
-        <div className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-white/5 shadow-2xl shadow-black/50">
+        <div className="relative w-full overflow-hidden rounded-xl border border-content/10 bg-content/5 shadow-2xl shadow-black/50">
           <div className="relative aspect-video w-full">
             {thumbnail ? (
               <img src={thumbnail} alt={next.title} className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
-                <PlayCircle className="h-12 w-12 text-white/20" />
+                <PlayCircle className="h-12 w-12 text-content/20" />
               </div>
             )}
             {/* dark fade at bottom for title legibility */}
             <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 px-4 pb-3 text-left">
-              <p className="truncate text-base font-semibold text-white">{next.title}</p>
-              <p className="truncate text-xs text-white/60">{next.playlist}</p>
+              <p className="truncate text-base font-semibold text-content">{next.title}</p>
+              <p className="truncate text-xs text-content/60">{next.playlist}</p>
             </div>
           </div>
           {/* countdown progress bar */}
-          <div className="h-[3px] w-full bg-white/10">
+          <div className="h-[3px] w-full bg-content/10">
             <div
-              className="h-full bg-red-500 transition-[width] duration-1000 ease-linear"
+              className="h-full bg-primary transition-[width] duration-1000 ease-linear"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -528,14 +528,14 @@ function CountdownOverlay({
         <div className="flex items-center gap-3">
           <button
             onClick={onCancel}
-            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-5 py-2 text-sm font-medium text-white/80 backdrop-blur transition hover:bg-white/10 hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-content/15 bg-content/5 px-5 py-2 text-sm font-medium text-content/80 backdrop-blur transition hover:bg-content/10 hover:text-content"
           >
             <X className="h-4 w-4" />
             Cancel
           </button>
           <button
             onClick={onPlayNow}
-            className="flex items-center gap-1.5 rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500"
+            className="flex items-center gap-1.5 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-content shadow-lg shadow-primary/30 transition hover:bg-primary"
           >
             <PlayCircle className="h-4 w-4" />
             Play Now
@@ -549,25 +549,25 @@ function CountdownOverlay({
 /* ─── Up Next item ─── */
 function UpNextItem({ video, meta, onPlay }: { video: VideoEntry; meta?: { thumbnailUrl?: string; duration?: number }; onPlay: () => void }) {
   return (
-    <button onClick={onPlay} className="flex gap-2 rounded-lg p-2 text-left transition hover:bg-white/5">
-      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg bg-white/5">
+    <button onClick={onPlay} className="flex gap-2 rounded-lg p-2 text-left transition hover:bg-content/5">
+      <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg bg-content/5">
         {meta?.thumbnailUrl ? (
           <img src={meta.thumbnailUrl} alt={video.title} className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <PlayCircle className="h-6 w-6 text-white/10" />
+            <PlayCircle className="h-6 w-6 text-content/10" />
           </div>
         )}
         {meta?.duration != null && meta.duration > 0 && (
-          <span className="absolute bottom-1 right-1 rounded bg-black/80 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white">
+          <span className="absolute bottom-1 right-1 rounded bg-black/80 px-1 py-0.5 text-[10px] font-medium tabular-nums text-content">
             {formatDuration(meta.duration)}
           </span>
         )}
       </div>
       <div className="min-w-0 flex-1 py-0.5">
-        <p className="line-clamp-2 text-sm font-medium leading-snug text-white/80">{video.title}</p>
-        <p className="mt-0.5 truncate text-xs text-white/40">{video.playlist}</p>
-        <p className="text-xs text-white/40">{formatSize(video.size)}</p>
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-content/80">{video.title}</p>
+        <p className="mt-0.5 truncate text-xs text-content/40">{video.playlist}</p>
+        <p className="text-xs text-content/40">{formatSize(video.size)}</p>
       </div>
     </button>
   );

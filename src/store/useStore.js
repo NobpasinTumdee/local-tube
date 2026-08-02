@@ -1,4 +1,69 @@
 import { create } from 'zustand';
+export const THEMES = [
+    {
+        id: 'dark',
+        name: 'Default Dark',
+        description: 'The classic YouTube-like look',
+        swatch: { bg: '#0f0f0f', surface: '#181818', primary: '#ff0000', accent: '#3b82f6', text: '#ffffff' },
+    },
+    {
+        id: 'oled',
+        name: 'OLED Black',
+        description: 'Pure black — saves battery on OLED screens',
+        swatch: { bg: '#000000', surface: '#0c0c0c', primary: '#ff0000', accent: '#3b82f6', text: '#f5f5f5' },
+    },
+    {
+        id: 'terminal',
+        name: 'Retro Terminal',
+        description: 'Green monospaced text on black',
+        swatch: { bg: '#000000', surface: '#081408', primary: '#00ff41', accent: '#39ff14', text: '#33ff66' },
+    },
+    {
+        id: 'deepsea',
+        name: 'Deep Sea',
+        description: 'Dark blue depths with teal accents',
+        swatch: { bg: '#081423', surface: '#0e2036', primary: '#14b8a6', accent: '#2dd4bf', text: '#e0f2f1' },
+    },
+    {
+        id: 'cyberpunk',
+        name: 'Cyberpunk',
+        description: 'Neon purple with cyan & magenta contrast',
+        swatch: { bg: '#140a23', surface: '#211236', primary: '#22d3ee', accent: '#e879f9', text: '#ece9ff' },
+    },
+    {
+        id: 'light',
+        name: 'Soft Light',
+        description: 'A clean, warm daytime theme',
+        swatch: { bg: '#faf9f6', surface: '#ffffff', primary: '#dc2626', accent: '#2563eb', text: '#18181b' },
+    },
+];
+const THEME_STORAGE_KEY = 'localtube:theme';
+const DEFAULT_THEME = 'dark';
+function isThemeId(v) {
+    return !!v && THEMES.some((t) => t.id === v);
+}
+/** Read the persisted theme (falls back to the default). */
+export function getInitialTheme() {
+    try {
+        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        if (isThemeId(stored))
+            return stored;
+    }
+    catch {
+        /* localStorage unavailable — ignore */
+    }
+    return DEFAULT_THEME;
+}
+/** Apply a theme to <body> (and persist it). Safe to call before render. */
+export function applyTheme(id) {
+    document.body.className = `theme-${id}`;
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, id);
+    }
+    catch {
+        /* ignore persistence failures */
+    }
+}
 const RECENT_LIMIT = 12;
 export const useStore = create((set, get) => ({
     rootName: '',
@@ -16,6 +81,7 @@ export const useStore = create((set, get) => ({
     theaterMode: false,
     currentImageId: null,
     videoMeta: {},
+    currentTheme: getInitialTheme(),
     playbackQueue: [],
     recentVideoIds: [],
     /* legacy */
@@ -82,6 +148,10 @@ export const useStore = create((set, get) => ({
     setVideoMeta: (id, meta) => set((s) => ({
         videoMeta: { ...s.videoMeta, [id]: { ...s.videoMeta[id], ...meta } },
     })),
+    setTheme: (id) => {
+        applyTheme(id);
+        set({ currentTheme: id });
+    },
     setPlaybackQueue: (ids) => {
         const cur = get().playbackQueue;
         if (cur.length === ids.length && cur.every((x, i) => x === ids[i]))

@@ -41,10 +41,10 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col overflow-y-auto border-r border-white/[0.04] bg-[#080808]/80 backdrop-blur-2xl scrollbar-hidden"
+      className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col overflow-y-auto border-r border-content/[0.04] bg-base/80 backdrop-blur-2xl scrollbar-hidden"
     >
       {/* subtle top-down gradient for premium feel */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.02] via-transparent to-transparent" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-content/[0.02] via-transparent to-transparent" />
 
       <div className="relative flex flex-1 flex-col px-3 py-4">
         {/* ── LIBRARY ── */}
@@ -108,17 +108,17 @@ export default function Sidebar() {
                     onClick={() => playVideo(v.id)}
                     className={`relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
                       active
-                        ? 'bg-white/[0.07] text-white'
-                        : 'text-white/60 hover:bg-white/[0.04] hover:text-white/95'
+                        ? 'bg-content/[0.07] text-content'
+                        : 'text-content/60 hover:bg-content/[0.04] hover:text-content/95'
                     }`}
                   >
                     {active && <ActiveBar />}
-                    <div className="relative h-8 w-12 shrink-0 overflow-hidden rounded bg-white/5">
+                    <div className="relative h-8 w-12 shrink-0 overflow-hidden rounded bg-content/5">
                       {thumb ? (
                         <img src={thumb} alt="" className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
-                          <PlayCircle className="h-4 w-4 text-white/20" />
+                          <PlayCircle className="h-4 w-4 text-content/20" />
                         </div>
                       )}
                     </div>
@@ -133,7 +133,7 @@ export default function Sidebar() {
         <div className="flex-1" />
 
         {/* footer tag */}
-        <div className="mt-4 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-white/20">
+        <div className="mt-4 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-content/20">
           Local Media Hub
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function Sidebar() {
 /* ─── Section label ─── */
 function SectionLabel({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
-    <div className="mb-1.5 mt-1 flex items-center gap-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
+    <div className="mb-1.5 mt-1 flex items-center gap-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-content/30">
       {icon}
       {children}
     </div>
@@ -152,13 +152,13 @@ function SectionLabel({ children, icon }: { children: React.ReactNode; icon?: Re
 }
 
 function Divider() {
-  return <div className="my-3 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />;
+  return <div className="my-3 h-px bg-gradient-to-r from-transparent via-content/[0.06] to-transparent" />;
 }
 
 /* ─── Active red vertical bar (Netflix-style indicator) ─── */
 function ActiveBar() {
   return (
-    <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.6)]" />
+    <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary shadow-[0_0_12px_rgb(var(--color-primary)/0.6)]" />
   );
 }
 
@@ -181,17 +181,17 @@ function NavItem({
       onClick={onClick}
       className={`group relative mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 ${
         active
-          ? 'bg-white/[0.08] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-          : 'text-white/65 hover:bg-white/[0.04] hover:text-white'
+          ? 'bg-content/[0.08] font-medium text-content shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+          : 'text-content/65 hover:bg-content/[0.04] hover:text-content'
       }`}
     >
       {active && <ActiveBar />}
-      <span className={`shrink-0 transition-transform duration-200 ${active ? 'text-red-400' : 'group-hover:scale-110'}`}>
+      <span className={`shrink-0 transition-transform duration-200 ${active ? 'text-primary' : 'group-hover:scale-110'}`}>
         {icon}
       </span>
       <span className="flex-1 truncate text-left">{label}</span>
       {count != null && (
-        <span className="text-[11px] tabular-nums text-white/30">{count}</span>
+        <span className="text-[11px] tabular-nums text-content/30">{count}</span>
       )}
     </button>
   );
@@ -249,8 +249,8 @@ function TreeNode({ node, currentFolderPath, onNavigate, depth }: TreeNodeProps)
       <div
         className={`group relative mb-0.5 flex w-full items-center rounded-lg text-sm transition-all duration-200 ${
           isActive
-            ? 'bg-white/[0.08] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-            : 'text-white/60 hover:bg-white/[0.04] hover:text-white/95'
+            ? 'bg-content/[0.08] font-medium text-content shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+            : 'text-content/60 hover:bg-content/[0.04] hover:text-content/95'
         }`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
       >
@@ -259,7 +259,7 @@ function TreeNode({ node, currentFolderPath, onNavigate, depth }: TreeNodeProps)
         {/* expand/collapse chevron */}
         <button
           onClick={() => setOpen((o) => !o)}
-          className="flex h-8 w-6 shrink-0 items-center justify-center text-white/40 transition hover:text-white/80"
+          className="flex h-8 w-6 shrink-0 items-center justify-center text-content/40 transition hover:text-content/80"
           aria-label={open ? 'Collapse' : 'Expand'}
         >
           {hasChildren ? (
@@ -282,7 +282,7 @@ function TreeNode({ node, currentFolderPath, onNavigate, depth }: TreeNodeProps)
             <Folder className="h-4 w-4 shrink-0 text-amber-400/70" />
           )}
           <span className="flex-1 truncate text-left text-[13px]">{node.name}</span>
-          <span className="shrink-0 text-[10px] tabular-nums text-white/25">{node.mediaCount}</span>
+          <span className="shrink-0 text-[10px] tabular-nums text-content/25">{node.mediaCount}</span>
         </button>
       </div>
 

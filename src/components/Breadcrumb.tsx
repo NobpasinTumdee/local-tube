@@ -26,16 +26,16 @@ export default function Breadcrumb() {
         return (
           <span key={seg.path} className="flex items-center gap-1">
             {i > 0 && (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-white/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-content/20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             )}
             {isLast ? (
-              <span className="font-semibold text-white/80">{seg.label}</span>
+              <span className="font-semibold text-content/80">{seg.label}</span>
             ) : (
               <button
                 onClick={() => setCurrentFolder(seg.path)}
-                className="text-white/40 transition hover:text-white/80"
+                className="text-content/40 transition hover:text-content/80"
               >
                 {seg.label}
               </button>

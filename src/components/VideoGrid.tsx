@@ -33,14 +33,14 @@ export default function VideoGrid({ videos }: Props) {
         </div>
 
         {/* View mode toggle */}
-        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-white/5 bg-white/[0.03] p-1">
+        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-content/5 bg-content/[0.03] p-1">
           <ViewToggleBtn label="Folders" icon={<FolderIcon />} value="nested" current={viewMode} onClick={setViewMode} />
           <ViewToggleBtn label="All Files" icon={<ListIcon />} value="flat" current={viewMode} onClick={setViewMode} />
         </div>
       </div>
 
       {!hasContent && (
-        <div className="flex flex-col items-center justify-center gap-3 py-32 text-white/30">
+        <div className="flex flex-col items-center justify-center gap-3 py-32 text-content/30">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
             <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -53,7 +53,7 @@ export default function VideoGrid({ videos }: Props) {
       {viewMode === 'nested' && subfolders.length > 0 && (
         <div className="mb-8">
           {currentFolderPath === '' && (
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/40">Folders</h2>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-content/40">Folders</h2>
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {subfolders.map((folder) => (
@@ -68,11 +68,11 @@ export default function VideoGrid({ videos }: Props) {
         <>
           {/* "Files" heading only shown when subfolders also visible */}
           {viewMode === 'nested' && subfolders.length > 0 && (
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-white/40">Files</h2>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-content/40">Files</h2>
           )}
           {/* flat mode: show count */}
           {viewMode === 'flat' && (
-            <p className="mb-4 text-xs text-white/30">{videos.length} file{videos.length !== 1 ? 's' : ''} (including subfolders)</p>
+            <p className="mb-4 text-xs text-content/30">{videos.length} file{videos.length !== 1 ? 's' : ''} (including subfolders)</p>
           )}
           <div className="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {videos.map((v) => (
@@ -101,8 +101,8 @@ function ViewToggleBtn({
       onClick={() => onClick(value)}
       className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold transition ${
         active
-          ? 'bg-white/15 text-white'
-          : 'text-white/40 hover:bg-white/5 hover:text-white/70'
+          ? 'bg-content/15 text-content'
+          : 'text-content/40 hover:bg-content/5 hover:text-content/70'
       }`}
       title={label}
     >
@@ -129,7 +129,7 @@ function FolderCard({ folder, onClick }: { folder: FolderNode; onClick: () => vo
   return (
     <button
       onClick={onClick}
-      className="group flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3.5 text-left transition hover:border-white/10 hover:bg-white/[0.07]"
+      className="group flex items-center gap-3 rounded-xl border border-content/5 bg-content/[0.03] px-4 py-3.5 text-left transition hover:border-content/10 hover:bg-content/[0.07]"
     >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-yellow-400/10">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400/80" viewBox="0 0 24 24" fill="currentColor">
@@ -137,13 +137,13 @@ function FolderCard({ folder, onClick }: { folder: FolderNode; onClick: () => vo
         </svg>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-white/85 group-hover:text-white">{folder.name}</p>
-        <p className="text-xs text-white/35">
+        <p className="truncate text-sm font-medium text-content/85 group-hover:text-content">{folder.name}</p>
+        <p className="text-xs text-content/35">
           {folder.mediaCount} item{folder.mediaCount !== 1 ? 's' : ''}
           {folder.children.length > 0 && ` · ${folder.children.length} folder${folder.children.length !== 1 ? 's' : ''}`}
         </p>
       </div>
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0 text-white/20 transition group-hover:text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 shrink-0 text-content/20 transition group-hover:text-content/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
         <polyline points="9 18 15 12 9 6" />
       </svg>
     </button>

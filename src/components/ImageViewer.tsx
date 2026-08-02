@@ -64,12 +64,12 @@ export default function ImageViewer() {
   const hasNext = currentIdx < siblings.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-[#0f0f0f]">
+    <div className="fixed inset-0 z-[100] flex flex-col bg-base">
       {/* ── Top bar ── */}
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/5 bg-[#0f0f0f]/90 px-4 backdrop-blur">
+      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-content/5 bg-base/90 px-4 backdrop-blur">
         <button
           onClick={closeImage}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
           aria-label="Back"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -78,15 +78,15 @@ export default function ImageViewer() {
         </button>
 
         <div className="flex-1 min-w-0">
-          <p className="truncate text-sm font-medium text-white/90">{image.title}</p>
-          <p className="text-xs text-white/40">
+          <p className="truncate text-sm font-medium text-content/90">{image.title}</p>
+          <p className="text-xs text-content/40">
             {image.playlist} • {formatSize(image.size)} • {formatRelative(image.lastModified)}
           </p>
         </div>
 
         {/* counter */}
         {siblings.length > 1 && (
-          <span className="shrink-0 text-xs tabular-nums text-white/40">
+          <span className="shrink-0 text-xs tabular-nums text-content/40">
             {currentIdx + 1} / {siblings.length}
           </span>
         )}
@@ -95,7 +95,7 @@ export default function ImageViewer() {
       {/* ── Main image area ── */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden">
         {loading ? (
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/10 border-t-white/40" />
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-content/10 border-t-content/40" />
         ) : objectUrl ? (
           <img
             key={objectUrl}
@@ -106,14 +106,14 @@ export default function ImageViewer() {
             draggable={false}
           />
         ) : (
-          <p className="text-white/30">Could not load image.</p>
+          <p className="text-content/30">Could not load image.</p>
         )}
 
         {/* Prev button */}
         {hasPrev && (
           <button
             onClick={() => viewImage(siblings[currentIdx - 1].id)}
-            className="absolute left-3 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white/80 backdrop-blur transition hover:bg-black/70 hover:text-white"
+            className="absolute left-3 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-content/80 backdrop-blur transition hover:bg-black/70 hover:text-content"
             aria-label="Previous image"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -126,7 +126,7 @@ export default function ImageViewer() {
         {hasNext && (
           <button
             onClick={() => viewImage(siblings[currentIdx + 1].id)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white/80 backdrop-blur transition hover:bg-black/70 hover:text-white"
+            className="absolute right-3 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-content/80 backdrop-blur transition hover:bg-black/70 hover:text-content"
             aria-label="Next image"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
