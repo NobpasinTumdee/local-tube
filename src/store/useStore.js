@@ -140,26 +140,35 @@ export const useStore = create()(persist((set, get) => ({
     /* legacy */
     activePlaylist: null,
     setActivePlaylist: (p) => set({ activePlaylist: p, currentFolderPath: p ?? '', searchQuery: '', collection: { type: 'all' } }),
-    setLibrary: (scan) => set({
-        rootName: scan.rootName,
-        videos: scan.videos,
-        playlists: scan.playlists,
-        directoryTree: scan.directoryTree,
-        currentFolderPath: '',
-        activePlaylist: null,
-        searchQuery: '',
-        currentVideoId: null,
-        currentImageId: null,
-        playerMode: 'none',
-        view: 'home',
-        homeFilter: 'all',
-        viewMode: 'nested',
-        videoMeta: {},
-        playbackQueue: [],
-        recentVideoIds: [],
-        collection: { type: 'all' },
-        activeFilterTags: [],
-        /* NOTE: favorites, virtualPlaylists & mediaTags intentionally preserved across re-scans */
+    setLibrary: (scan) => set((s) => {
+        /* Revoke orphaned image-thumbnail blob: URLs from the previous scan so they
+           don't accumulate in memory. Video thumbnails are inline data: URLs (nothing
+           to revoke). Nothing here leaves the browser — purely local cleanup. */
+        for (const m of Object.values(s.videoMeta)) {
+            if (m.thumbnailUrl?.startsWith('blob:'))
+                URL.revokeObjectURL(m.thumbnailUrl);
+        }
+        return {
+            rootName: scan.rootName,
+            videos: scan.videos,
+            playlists: scan.playlists,
+            directoryTree: scan.directoryTree,
+            currentFolderPath: '',
+            activePlaylist: null,
+            searchQuery: '',
+            currentVideoId: null,
+            currentImageId: null,
+            playerMode: 'none',
+            view: 'home',
+            homeFilter: 'all',
+            viewMode: 'nested',
+            videoMeta: {},
+            playbackQueue: [],
+            recentVideoIds: [],
+            collection: { type: 'all' },
+            activeFilterTags: [],
+            /* NOTE: favorites, virtualPlaylists & mediaTags intentionally preserved across re-scans */
+        };
     }),
     /*
      * Navigating to a folder should NOT reset currentVideoId / playerMode —

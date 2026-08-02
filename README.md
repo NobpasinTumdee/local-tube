@@ -1,121 +1,207 @@
-# LocalTube 📺
+<div align="center">
 
-[English](#english) | [ภาษาไทย](#ภาษาไทย)
+# 🎬 LocalTube
 
----
+**A modern, 100% local, zero-backend media streaming experience for your own videos & images — right in the browser.**
 
-<a name="english"></a>
-## 🇬🇧 English Version
+Point it at a folder on your disk and get a premium, Netflix-style library. Nothing is uploaded. Nothing is tracked. Nothing on your disk is ever modified.
 
-### What is LocalTube?
-LocalTube is a modern, web-based application designed to act as a "Local YouTube Clone". It allows users to browse and watch their local video collections directly in the browser with a beautiful, YouTube-like dark mode interface. 
+![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-16a34a)
+![Network](https://img.shields.io/badge/Network-Zero%20Requests-16a34a)
+![Filesystem](https://img.shields.io/badge/Disk%20Access-Read--Only-2563eb)
+![React](https://img.shields.io/badge/React-18-61dafb)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6)
+![Vite](https://img.shields.io/badge/Vite-5-646cff)
 
-**Key Constraint & Privacy:** There is **NO backend**, **NO database**, and **NO login system**. The application runs entirely locally in your browser using the modern **File System Access API**. Your files never leave your computer.
-
-### Key Features
-- **Local Directory Scanning:** Select a folder, and it recursively finds all compatible video files (`.mp4`, `.webm`, `.ogg`, etc.). Top-level folders act as "Home", and subfolders act as "Playlists" (or Channels).
-- **Auto Thumbnail Extraction:** Extracts frames directly from local video files to use as thumbnails, implementing lazy loading via `IntersectionObserver` and a concurrency queue to ensure performance even with hundreds of videos.
-- **Custom Video Player:** A fully-featured custom player over the native HTML5 video element. Supports play/pause, seeking, volume control, theater mode, fullscreen, and native Picture-in-Picture.
-- **Seamless Mini-Player:** Press the `i` key to transition smoothly between a full-screen player and a floating mini-player at the bottom corner. The video element is persistent, meaning playback doesn't restart during transitions.
-- **Vertical Video Support:** The player container adapts to vertical videos using `object-fit: contain` within a fixed viewport height.
-
-### Detailed Tech Stack
-- **Framework:** React 18
-- **Build Tool:** Vite (Fast cold starts, hot module replacement)
-- **Language:** TypeScript (Strict typing for robust code)
-- **Styling:** Tailwind CSS (Utility-first CSS framework for rapid UI development) & Pure CSS modules for specific scrollbar/range inputs.
-- **State Management:** Zustand (Lightweight, un-opinionated state management)
-- **Animations:** Framer Motion (Used for smooth layout transitions between the full player and mini-player)
-- **Browser APIs:** 
-  - `File System Access API` (`showDirectoryPicker`) for reading local folders.
-  - `IntersectionObserver` for lazy loading thumbnails.
-  - `<canvas>` API for capturing video frames.
-
-### Project Structure (File Explanations)
-
-#### Core Files
-- `index.html`: The main HTML entry point.
-- `package.json`: Project dependencies and scripts.
-- `tailwind.config.js`: Configuration for Tailwind CSS styles.
-- `vite.config.ts`: Configuration for the Vite bundler.
-- `tsconfig.json`: TypeScript compiler configurations.
-
-#### Source Code (`src/`)
-- `main.tsx`: The React entry point that mounts the `App` component to the DOM.
-- `App.tsx`: The main application wrapper. Manages view state (home vs. playing) and global keyboard shortcuts (e.g., toggling the mini-player).
-- `index.css`: Global CSS, including custom scrollbar and range slider styling.
-
-#### State Management (`src/store/`)
-- `useStore.ts`: The central Zustand store. Manages the global state including the video library (files, playlists), navigation state (search query, sidebar visibility), and player state (current video, full/mini mode, theater mode, and cached metadata like thumbnails).
-
-#### Components (`src/components/`)
-- `Welcome.tsx`: The initial landing screen prompting the user to select a local folder.
-- `Header.tsx`: The top navigation bar containing the hamburger menu, logo (which navigates home), search bar, and "Change Folder" button.
-- `Sidebar.tsx`: The collapsible side menu displaying the "Home" option and dynamic playlists based on subfolders.
-- `VideoGrid.tsx`: A responsive grid container that maps over video entries to display cards.
-- `VideoCard.tsx`: Represents a single video. It handles lazy loading its own thumbnail using `IntersectionObserver` to trigger the extraction utility only when visible.
-- `Player.tsx`: The complex custom video player component. It uses `framer-motion` to smoothly animate between a large overlay and a floating mini-player without unmounting the `<video>` tag, ensuring seamless playback. Includes custom controls and an "Up Next" queue.
-
-#### Utilities (`src/utils/`)
-- `directoryScanner.ts`: Uses the File System Access API to recursively read directories, filter video files, and map them into a structured format for the application.
-- `generateThumbnail.ts`: Creates a hidden `<video>` element, loads a file blob, seeks to 1.0 second, draws the frame to a `<canvas>`, and exports it as a base64 image. Includes a `ThumbnailQueue` to prevent browser freezing.
-- `format.ts`: Helper functions to format durations (e.g., `12:34`), file sizes (e.g., `1.2 GB`), and relative dates (e.g., `2 days ago`).
+</div>
 
 ---
 
-<a name="ภาษาไทย"></a>
-## 🇹🇭 Thai Version (ภาษาไทย)
+## 📖 Project Overview
 
-### LocalTube คืออะไร?
-LocalTube คือเว็บแอปพลิเคชันสมัยใหม่ที่ออกแบบมาให้เป็น "YouTube สำหรับไฟล์ในเครื่อง (Local YouTube Clone)" แอปนี้ช่วยให้คุณสามารถเปิดดูคลังวิดีโอในเครื่องคอมพิวเตอร์ของคุณผ่านเบราว์เซอร์ได้โดยตรง มาพร้อมกับหน้าต่างการใช้งานแบบ Dark Mode ที่สวยงามเหมือน YouTube
+**LocalTube** is a browser-based media library and player for the videos and images already sitting on your computer. Using the browser's **File System Access API**, you grant read access to a folder and LocalTube renders it as a polished streaming app — thumbnails, hover previews, playlists, tags, themes, multi-video layouts, and more.
 
-**ข้อจำกัดหลักและความเป็นส่วนตัว:** โปรเจคนี้ **ไม่มี Backend**, **ไม่มี Database**, และ **ไม่มีระบบ Login** ทุกอย่างทำงานแบบออฟไลน์บนเบราว์เซอร์ของคุณ 100% โดยใช้ **File System Access API** ไฟล์วิดีโอของคุณจะไม่ถูกอัปโหลดไปที่ไหนทั้งสิ้น
+There is **no server, no database, and no account**. Every byte stays inside your browser tab. When you close it, the media handles are gone; only your lightweight preferences (favorites, playlists, tags, theme) persist in `localStorage`.
 
-### ฟีเจอร์หลัก
-- **สแกนโฟลเดอร์ในเครื่อง:** เลือกโฟลเดอร์หลัก แล้วระบบจะค้นหาไฟล์วิดีโอทั้งหมดที่รองรับ (`.mp4`, `.webm`, `.ogg`) แบบเจาะลึก (Recursive) โฟลเดอร์หลักจะเปรียบเสมือนหน้า "Home" ส่วนโฟลเดอร์ย่อยจะถูกแปลงเป็น "Playlists" (หรือ Channels)
-- **สร้างภาพตัวอย่าง (Thumbnail) อัตโนมัติ:** ระบบจะดึงเฟรมภาพจากไฟล์วิดีโอมาทำเป็นหน้าปกโดยอัตโนมัติ มีระบบ Lazy Loading โดยใช้ `IntersectionObserver` และระบบจัดการคิว (Concurrency Queue) เพื่อไม่ให้เบราว์เซอร์ค้างแม้จะมีวิดีโอเป็นร้อยไฟล์
-- **Video Player แบบ Custom:** เครื่องเล่นวิดีโอที่สร้าง UI ครอบทับ HTML5 Video แบบปกติ รองรับการ เล่น/หยุด, เลื่อนเวลา, ปรับเสียง, Theater Mode, Fullscreen, และ Picture-in-Picture ของเบราว์เซอร์
-- **Mini-Player แบบไร้รอยต่อ:** กดปุ่ม `i` บนคีย์บอร์ดเพื่อย่อวิดีโอจากโหมดเต็มจอเป็น Mini-player ขนาดเล็กมุมล่างขวา ระบบสามารถสลับโหมดไปมาได้อย่างนุ่มนวลโดยวิดีโอไม่หยุดเล่นหรือโหลดใหม่
-- **รองรับวิดีโอแนวตั้ง:** หน้าต่างเล่นวิดีโอรองรับวิดีโอแนวตั้งโดยอัตโนมัติ โดยใช้ `object-fit: contain` เพื่อให้อยู่ในกรอบโดยไม่ล้นหน้าจอ
+---
 
-### เทคโนโลยีที่ใช้ (Tech Stack แบบละเอียด)
-- **Framework:** React 18
-- **Build Tool:** Vite (เริ่มโปรเจคไว, อัปเดตการเปลี่ยนแปลงแบบ Hot Module Replacement เร็วมาก)
-- **Language:** TypeScript (เพิ่มความปลอดภัยในการเขียนโค้ดด้วยการกำหนด Type แบบเข้มงวด)
-- **Styling:** Tailwind CSS (Utility-first CSS สำหรับการสร้าง UI อย่างรวดเร็ว) ผสมกับ Pure CSS สำหรับการตกแต่ง Scrollbar และ Range input
-- **State Management:** Zustand (จัดการ State ระดับ Global ได้เบาและใช้งานง่ายกว่า Redux)
-- **Animations:** Framer Motion (ใช้สำหรับทำแอนิเมชัน Layout ให้สลับระหว่างโหมดจอใหญ่กับ Mini-player ได้อย่างสมูท)
-- **Browser APIs:** 
-  - `File System Access API` (`showDirectoryPicker`) สำหรับขอสิทธิ์อ่านโฟลเดอร์ในเครื่องผู้ใช้
-  - `IntersectionObserver` สำหรับโหลด Thumbnail เฉพาะตอนที่ผู้ใช้เลื่อนหน้าจอมาเห็น
-  - `<canvas>` API สำหรับแคปเจอร์ภาพเฟรมจากวิดีโอ
+## 🔒 Privacy & Security Guarantee
 
-### โครงสร้างโปรเจค (หน้าที่ของแต่ละไฟล์)
+LocalTube is built around three hard guarantees, each **verified by a source-code audit**:
 
-#### ไฟล์หลักของระบบ
-- `index.html`: ไฟล์ HTML หลักที่เบราว์เซอร์เรียกใช้
-- `package.json`: จัดการ Dependencies และ Scripts ต่างๆ ของโปรเจค
-- `tailwind.config.js`: ตั้งค่าสีหรือ Theme ต่างๆ สำหรับ Tailwind CSS
-- `vite.config.ts`: ตั้งค่า Vite bundler
-- `tsconfig.json`: ตั้งค่าการทำงานของ TypeScript
+### 1. 🟢 100% Local — No Network Exfiltration
+There are **zero** `fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, or `EventSource` calls anywhere in the codebase, and **no analytics, telemetry, or third-party trackers**. Your folder paths, files, thumbnails, Blob URLs, and metadata **never leave the browser**. The app loads only its own bundled assets — no CDNs, no remote fonts.
 
-#### ซอร์สโค้ด (`src/`)
-- `main.tsx`: จุดเริ่มต้นของ React นำ Component `App` ไปผูกกับ DOM
-- `App.tsx`: ตัวครอบแอปพลิเคชันทั้งหมด จัดการว่าควรจะแสดงหน้า Home หรือเล่นวิดีโอ และดักจับคีย์บอร์ด (เช่น กด 'i' เพื่อเปิด Mini-player)
-- `index.css`: CSS หลักของโปรเจค รวมถึงการปรับแต่ง Scrollbar และ Slider ของวิดีโอ
+### 2. 🔵 Read-Only — No File Modification
+LocalTube opens your folder with the **default `'read'` permission only**. It never requests `'readwrite'`, never creates a `FileSystemWritableFileStream`, and never calls `removeEntry`, `move`, or `rename`. **There is no code path capable of deleting, moving, renaming, or altering a single file on your disk.**
 
-#### การจัดการ State (`src/store/`)
-- `useStore.ts`: ไฟล์ Zustand Store ส่วนกลาง เก็บข้อมูลทั้งหมด เช่น รายการวิดีโอ (Videos, Playlists), สถานะหน้าจอ (คำค้นหา, การเปิดปิด Sidebar), และสถานะของ Player (วิดีโอที่เล่นอยู่, โหมดหน้าจอ, ข้อมูลภาพปก)
+### 3. 🟣 Sandbox Security — No Escape, No XSS
+All file access is confined to the single directory handle *you* explicitly authorize — the browser sandbox enforces this, and the code performs no path-string manipulation to reach outside it. There is **no `dangerouslySetInnerHTML`, `innerHTML`, `eval`, or `new Function`** in the project, eliminating common XSS sinks. Blob URLs are created lazily and revoked deterministically.
 
-#### คอมโพเนนต์ (`src/components/`)
-- `Welcome.tsx`: หน้าจอแรกสุดที่เชิญชวนให้ผู้ใช้กดปุ่มเลือกโฟลเดอร์วิดีโอ
-- `Header.tsx`: แถบด้านบนสุด มีปุ่มเมนู (Hamburger), โลโก้ (กดเพื่อกลับหน้าแรก), ช่องค้นหาวิดีโอ, และปุ่มเปลี่ยนโฟลเดอร์
-- `Sidebar.tsx`: เมนูด้านข้าง สามารถพับเก็บได้ แสดงปุ่ม "Home" และรายชื่อ Playlists ที่สร้างจากโฟลเดอร์ย่อย
-- `VideoGrid.tsx`: กรอบแสดงผลวิดีโอแบบ Grid ที่ปรับขนาดตามหน้าจอ
-- `VideoCard.tsx`: การ์ดวิดีโอ 1 อัน จัดการเรื่องการดึงภาพปกของตัวเองขึ้นมาแสดงแบบ Lazy Load (ดึงภาพเฉพาะตอนที่เลื่อนมาเจอ)
-- `Player.tsx`: คอมโพเนนต์เครื่องเล่นวิดีโอที่ซับซ้อนที่สุด ใช้ `framer-motion` เพื่อทำแอนิเมชันตอนย่อ/ขยายจอ (Mini-player) โดยไม่ให้ `<video>` หลุดออกจาก DOM เพื่อให้วิดีโอเล่นต่อเนื่องไม่สะดุด มีปุ่มควบคุมครบครัน และมีแถบ "Up Next" สำหรับวิดีโอถัดไป
+> **Virtual, not physical:** Favorites, Virtual Playlists, and Custom Tags are stored *only* as strings (media IDs = relative paths) in `localStorage`. They reorganize your **view**, never your **disk**.
 
-#### ฟังก์ชันช่วยเหลือ (`src/utils/`)
-- `directoryScanner.ts`: ใช้ File System Access API อ่านโฟลเดอร์ คัดกรองเฉพาะไฟล์วิดีโอ และจัดกลุ่มให้อยู่ในรูปแบบที่แอปพลิเคชันต้องการ
-- `generateThumbnail.ts`: ฟังก์ชันสร้าง `<video>` แบบซ่อนไว้ โหลดไฟล์ลงไป เลื่อนไปที่วินาทีที่ 1.0 แล้ววาดภาพลงบน `<canvas>` เพื่อแปลงเป็นรูปภาพ base64 มีระบบคิวเพื่อไม่ให้ทำงานหนักเกินไปจนเครื่องค้าง
-- `format.ts`: ฟังก์ชันสำหรับจัดรูปแบบตัวเลข เช่น รูปแบบเวลา (`12:34`), ขนาดไฟล์ (`1.2 GB`), และเวลาที่ผ่านมา (`2 days ago`)
+---
+
+## ✨ Key Features
+
+| | Feature | Description |
+|---|---|---|
+| 🎞️ | **Multi-Media Support** | Videos **and** images live together in one unified, uniform grid. |
+| 🧩 | **Multi-Media Layout Mode** | Watch/view several items at once in custom grid templates (Single, 1+2, 2×2, 3×3, **Auto**, and a fully **Custom** N×M grid) — freely mixing videos and images, with per-tile and master controls + fullscreen. |
+| 📐 | **Customizable Uniform Grid** | Choose a card **aspect ratio** (16:9 · 9:16 · 1:1) and **column count** (Auto · 2–6). All cards stay perfectly uniform; media fills cleanly via `object-cover`. |
+| 🎨 | **Dynamic Theme System** | Six CSS-variable-driven themes — **Default Dark, OLED Black, Retro Terminal, Deep Sea, Cyberpunk, Soft Light** — swap instantly with live swatch previews. |
+| 🍿 | **Streaming-Service UI/UX** | Cinematic cards, hover video previews, folder "shelves", and a YouTube-style **Ambient Glow** (cinema mode) behind the player. |
+| ❤️ | **Virtual Library** | Favorites, Virtual Playlists, and Custom Tagging + an advanced tag/type **Filter Bar** — all virtual, all local. |
+| 💾 | **Backup Export / Import** | One-click **JSON backup** of all your favorites, playlists, tags, theme, and watch progress — restore on any device. Never touches physical files. |
+| ⏯️ | **Continue Watching** | Playback position is remembered per video and resumes automatically. |
+
+---
+
+## 🗂️ Directory & Architecture Guide
+
+```
+LocalTube/
+├── index.html                  # App shell; inline script seeds saved theme (no-flash)
+├── src/
+│   ├── main.tsx                # Entry point — applies persisted theme, mounts React
+│   ├── App.tsx                 # Root: folder picker + master filter pipeline + layout
+│   ├── index.css               # Tailwind layers + all theme CSS variables + scrollbars
+│   │
+│   ├── store/
+│   │   └── useStore.ts         # 🧠 Zustand store (persist middleware) — single source
+│   │                           #    of truth: library, navigation, player, layout,
+│   │                           #    themes, favorites/playlists/tags, watch progress,
+│   │                           #    display prefs. Persists ONLY prefs to localStorage.
+│   │
+│   ├── utils/
+│   │   ├── directoryScanner.ts # 📁 Recursive File System Access walk → MediaEntry[]
+│   │   │                        #    + folder tree; classifies video/image; READ-ONLY.
+│   │   ├── generateThumbnail.ts# 🖼️ Offscreen <video>+<canvas> frame extraction with
+│   │   │                        #    a concurrency-limited queue (returns data: URL).
+│   │   ├── layoutGrid.ts       # Grid template → inline CSS-grid styles + DnD MIME types
+│   │   ├── backupUtils.ts      # Export/import user-data JSON (validate + sanitize)
+│   │   └── format.ts           # Duration / size / relative-time / resolution helpers
+│   │
+│   └── components/
+│       ├── Welcome.tsx         # First-run landing → triggers showDirectoryPicker()
+│       ├── Header.tsx          # Top bar: search, folder re-pick, layout/theme/settings
+│       ├── Sidebar.tsx         # Library nav, folder tree, Favorites, Playlists, Recent
+│       ├── Breadcrumb.tsx      # Folder path breadcrumb
+│       ├── FilterBar.tsx       # Media-type + dynamic tag filters (Framer Motion)
+│       ├── GridSettingsBar.tsx # Aspect-ratio + column-count selectors
+│       ├── MediaGrid.tsx       # Main grid: shelves, folder cards, uniform media grid
+│       ├── MediaCard.tsx       # A card: lazy thumbnail, hover preview, fav/tag/playlist
+│       ├── Player.tsx          # Single-video player: full/mini/theater, Up Next, resume
+│       ├── ImageViewer.tsx     # Fullscreen single-image viewer (prev/next)
+│       ├── MediaViewer.tsx     # Multi-media grid container + master controls + fullscreen
+│       ├── MediaTile.tsx       # One layout slot: video player OR image (zoom/pan)
+│       ├── AmbientGlow.tsx     # Canvas-sampled cinema-glow effect (perf-guarded)
+│       ├── LayoutSelector.tsx  # Layout toggle + templates + custom grid builder
+│       ├── ThemeSwitcher.tsx   # Theme picker with live swatches
+│       └── SettingsModal.tsx   # Data Management: backup export / restore
+│
+├── tailwind.config.js          # Semantic color tokens mapped to CSS variables
+├── vite.config.ts              # Vite + React plugin (dev server only)
+└── package.json                # 4 runtime deps: react, react-dom, zustand, framer-motion
+```
+
+---
+
+## ⚙️ How It Works (Technical Flow)
+
+LocalTube has **no backend** — the browser itself is the runtime, storage, and media server.
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│ 1. AUTHORIZE   User clicks "Select Folder" → window.showDirectoryPicker()   │
+│                Browser sandbox grants a READ-ONLY FileSystemDirectoryHandle  │
+├───────────────────────────────────────────────────────────────────────────┤
+│ 2. SCAN        directoryScanner.ts recursively walks the handle,            │
+│                classifying files by extension into a flat MediaEntry[]       │
+│                + a folder tree. Each entry keeps a read-only file handle.    │
+├───────────────────────────────────────────────────────────────────────────┤
+│ 3. LAZY LOAD   Each MediaCard registers an IntersectionObserver. Only when  │
+│                a card scrolls into view does it read its file:              │
+│                  • Video → generateThumbnail.ts draws a frame to <canvas>    │
+│                    → canvas.toDataURL() (inline, no blob to leak)            │
+│                  • Image → URL.createObjectURL(file) (revoked on re-scan)    │
+├───────────────────────────────────────────────────────────────────────────┤
+│ 4. PLAY        On click, the file handle → getFile() → Blob URL fed to a    │
+│                native <video>/<img>. Blob URLs are revoked on unmount,       │
+│                source-change, and player close (no memory leaks).            │
+├───────────────────────────────────────────────────────────────────────────┤
+│ 5. PERSIST     Zustand's persist middleware writes ONLY your preferences    │
+│                (favorites, playlists, tags, theme, progress, display) to     │
+│                localStorage. The heavy library + handles are never stored.   │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+- **File System Access API** provides sandboxed, read-only access to one user-chosen directory — the trust boundary.
+- **IntersectionObserver** keeps large libraries fast by deferring all file reads and thumbnail work until content is actually visible.
+- **`<canvas>` extraction** turns a video frame into a lightweight inline `data:` thumbnail without a server or FFmpeg.
+- **Zustand + persist** gives a single reactive store and durable-yet-minimal preferences, so the app "remembers you" without a database.
+
+---
+
+## 🚀 Getting Started
+
+### Requirements
+- **Node.js** ≥ 18
+- A **Chromium-based browser** (Chrome or Edge) — the File System Access API (`showDirectoryPicker`) is required and is not yet supported in Firefox/Safari.
+
+### Installation
+```bash
+git clone <your-repo-url>
+cd LocalTube
+npm install
+```
+
+### Run locally (development)
+```bash
+npm run dev
+```
+Then open the printed URL (default **http://localhost:5173**), click **Select Folder**, and choose any folder of videos/images.
+
+### Build for production
+```bash
+npm run build      # type-checks (tsc -b) then bundles with Vite → dist/
+npm run preview    # serve the production build locally
+```
+
+### Supported formats
+- **Video:** `.mp4`, `.webm`, `.ogg`, `.ogv`, `.mov`, `.mkv`, `.m4v`
+- **Image:** `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.avif`, `.bmp`
+
+---
+
+## 🗺️ Roadmap (Not Yet Implemented)
+
+These are planned and **not currently in the codebase**:
+
+- 🔤 **Local Subtitle Support** — drag-and-drop `.srt` / `.vtt` files and auto-discover sidecar subtitle tracks.
+- ⌨️ Global keyboard-shortcut cheatsheet.
+- 🗃️ Optional IndexedDB backend for very large tag/playlist datasets.
+
+---
+
+## 🛡️ Security Posture (Summary)
+
+| Guarantee | Status | Evidence |
+|---|---|---|
+| No network / telemetry | ✅ Verified | Zero `fetch`/XHR/WebSocket/beacon; no analytics deps |
+| Read-only filesystem | ✅ Verified | `showDirectoryPicker()` with no `readwrite`; no write/delete APIs |
+| No XSS sinks | ✅ Verified | No `dangerouslySetInnerHTML` / `innerHTML` / `eval` |
+| Blob-URL hygiene | ✅ Hardened | Deterministic `revokeObjectURL`; image thumbnails revoked on re-scan |
+| Virtual-only customizations | ✅ Verified | Favorites/playlists/tags are `localStorage` strings |
+
+**Recommended production hardening:** ship a strict Content-Security-Policy, e.g.
+`default-src 'self'; connect-src 'none'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'` —
+to make the "no exfiltration" guarantee browser-enforced.
+
+---
+
+<div align="center">
+
+**LocalTube** — your media, your machine, your rules. No cloud required.
+
+</div>

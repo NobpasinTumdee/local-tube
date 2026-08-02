@@ -418,7 +418,14 @@ export const useStore = create<StoreState>()(
   setActivePlaylist: (p) => set({ activePlaylist: p, currentFolderPath: p ?? '', searchQuery: '', collection: { type: 'all' } }),
 
   setLibrary: (scan) =>
-    set({
+    set((s) => {
+      /* Revoke orphaned image-thumbnail blob: URLs from the previous scan so they
+         don't accumulate in memory. Video thumbnails are inline data: URLs (nothing
+         to revoke). Nothing here leaves the browser — purely local cleanup. */
+      for (const m of Object.values(s.videoMeta)) {
+        if (m.thumbnailUrl?.startsWith('blob:')) URL.revokeObjectURL(m.thumbnailUrl);
+      }
+      return {
       rootName: scan.rootName,
       videos: scan.videos,
       playlists: scan.playlists,
@@ -438,6 +445,7 @@ export const useStore = create<StoreState>()(
       collection: { type: 'all' },
       activeFilterTags: [],
       /* NOTE: favorites, virtualPlaylists & mediaTags intentionally preserved across re-scans */
+      };
     }),
 
   /*
