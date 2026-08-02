@@ -113,15 +113,17 @@ export type ViewMode = 'nested' | 'flat';
 const RECENT_LIMIT = 12;
 
 /* ─────────────────────────────────────────────────────────────
- *  MULTI-VIDEO LAYOUT
+ *  MULTI-MEDIA LAYOUT
  * ─────────────────────────────────────────────────────────────
- *  A parallel "layout mode" that plays several videos at once in a
- *  CSS-grid. It coexists with the single-video player (which keeps
- *  the mini-player, Up Next & autoplay countdown) — enabling layout
- *  mode simply renders the grid instead.
+ *  A parallel "layout mode" that shows several media items at once in
+ *  a CSS-grid — videos AND images, freely mixed. It coexists with the
+ *  single-video player (which keeps the mini-player, Up Next & autoplay
+ *  countdown) — enabling layout mode simply renders the grid instead.
  *
- *  `activeVideos` is a SLOT array (index = grid position, null = empty)
- *  so drag-and-drop / click-to-fill can target a specific cell.
+ *  `activeMedia` is a SLOT array of media ids (index = grid position,
+ *  null = empty) so drag-and-drop / click-to-fill can target a cell.
+ *  Each id resolves to a MediaEntry whose `mediaType` decides how the
+ *  slot renders (video player vs. image viewer).
  * ───────────────────────────────────────────────────────────── */
 export type LayoutTemplateId = 'single' | 'sideBySide' | 'onePlusTwo' | 'grid2x2' | 'custom';
 
@@ -184,7 +186,7 @@ interface StoreState {
   /* multi-video layout */
   layoutMode: boolean;
   currentLayoutTemplate: LayoutTemplateId;
-  activeVideos: (string | null)[]; // slot array; null = empty cell
+  activeMedia: (string | null)[]; // slot array; null = empty cell
 
   /*
    * Ordered list of video ids that represent the CURRENT filtered view.
@@ -264,7 +266,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   layoutMode: false,
   currentLayoutTemplate: 'grid2x2',
-  activeVideos: emptySlots('grid2x2'),
+  activeMedia: emptySlots('grid2x2'),
 
   playbackQueue: [],
   recentVideoIds: [],
@@ -356,11 +358,11 @@ export const useStore = create<StoreState>((set, get) => ({
     set((s) => {
       if (!on) return { layoutMode: false };
       /* Smooth handoff: seed slot 0 with the single video that was playing */
-      const slots: (string | null)[] = [...s.activeVideos];
+      const slots: (string | null)[] = [...s.activeMedia];
       let anyFilled = false;
       for (const x of slots) if (x != null) { anyFilled = true; break; }
       if (s.currentVideoId && !anyFilled) slots[0] = s.currentVideoId;
-      return { layoutMode: true, activeVideos: slots };
+      return { layoutMode: true, activeMedia: slots };
     }),
 
   toggleLayoutMode: () => get().setLayoutMode(!get().layoutMode),
@@ -371,29 +373,29 @@ export const useStore = create<StoreState>((set, get) => ({
       let slots: (string | null)[];
       if (id === 'custom') {
         /* keep what's there (compacted to real entries), capped at MAX */
-        slots = s.activeVideos.filter((x) => x != null).slice(0, LAYOUT_MAX_SLOTS);
+        slots = s.activeMedia.filter((x) => x != null).slice(0, LAYOUT_MAX_SLOTS);
         if (slots.length === 0) slots = [null];
       } else {
         /* resize to the fixed slot count, preserving slot order */
-        slots = Array.from({ length: tpl.slots }, (_, i) => s.activeVideos[i] ?? null);
+        slots = Array.from({ length: tpl.slots }, (_, i) => s.activeMedia[i] ?? null);
       }
-      return { currentLayoutTemplate: id, activeVideos: slots, layoutMode: true };
+      return { currentLayoutTemplate: id, activeMedia: slots, layoutMode: true };
     }),
 
   addToLayout: (videoId, slot) =>
     set((s) => {
-      const slots = [...s.activeVideos];
+      const slots = [...s.activeMedia];
       if (slot != null) {
         if (slot < 0 || slot >= LAYOUT_MAX_SLOTS) return {};
         while (slots.length <= slot) slots.push(null); // grow for 'custom'
         slots[slot] = videoId;
-        return { activeVideos: slots, layoutMode: true };
+        return { activeMedia: slots, layoutMode: true };
       }
       /* no target slot → fill the first empty cell */
       const empty = slots.indexOf(null);
       if (empty >= 0) {
         slots[empty] = videoId;
-        return { activeVideos: slots, layoutMode: true };
+        return { activeMedia: slots, layoutMode: true };
       }
       /* full: 'custom' grows, fixed templates replace the last slot */
       if (s.currentLayoutTemplate === 'custom' && slots.length < LAYOUT_MAX_SLOTS) {
@@ -401,12 +403,12 @@ export const useStore = create<StoreState>((set, get) => ({
       } else {
         slots[slots.length - 1] = videoId;
       }
-      return { activeVideos: slots, layoutMode: true };
+      return { activeMedia: slots, layoutMode: true };
     }),
 
   removeFromLayout: (slot) =>
     set((s) => {
-      const slots = [...s.activeVideos];
+      const slots = [...s.activeMedia];
       if (slot < 0 || slot >= slots.length) return {};
       if (s.currentLayoutTemplate === 'custom') {
         slots.splice(slot, 1);
@@ -414,19 +416,19 @@ export const useStore = create<StoreState>((set, get) => ({
       } else {
         slots[slot] = null;
       }
-      return { activeVideos: slots };
+      return { activeMedia: slots };
     }),
 
   swapSlots: (a, b) =>
     set((s) => {
-      const slots = [...s.activeVideos];
+      const slots = [...s.activeMedia];
       if (a < 0 || b < 0 || a >= slots.length || b >= slots.length || a === b) return {};
       [slots[a], slots[b]] = [slots[b], slots[a]];
-      return { activeVideos: slots };
+      return { activeMedia: slots };
     }),
 
   clearLayout: () =>
-    set((s) => ({ activeVideos: emptySlots(s.currentLayoutTemplate) })),
+    set((s) => ({ activeMedia: emptySlots(s.currentLayoutTemplate) })),
 
   setPlaybackQueue: (ids) => {
     const cur = get().playbackQueue;

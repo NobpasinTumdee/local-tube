@@ -100,7 +100,7 @@ export const useStore = create((set, get) => ({
     currentTheme: getInitialTheme(),
     layoutMode: false,
     currentLayoutTemplate: 'grid2x2',
-    activeVideos: emptySlots('grid2x2'),
+    activeMedia: emptySlots('grid2x2'),
     playbackQueue: [],
     recentVideoIds: [],
     /* legacy */
@@ -176,7 +176,7 @@ export const useStore = create((set, get) => ({
         if (!on)
             return { layoutMode: false };
         /* Smooth handoff: seed slot 0 with the single video that was playing */
-        const slots = [...s.activeVideos];
+        const slots = [...s.activeMedia];
         let anyFilled = false;
         for (const x of slots)
             if (x != null) {
@@ -185,7 +185,7 @@ export const useStore = create((set, get) => ({
             }
         if (s.currentVideoId && !anyFilled)
             slots[0] = s.currentVideoId;
-        return { layoutMode: true, activeVideos: slots };
+        return { layoutMode: true, activeMedia: slots };
     }),
     toggleLayoutMode: () => get().setLayoutMode(!get().layoutMode),
     setLayoutTemplate: (id) => set((s) => {
@@ -193,31 +193,31 @@ export const useStore = create((set, get) => ({
         let slots;
         if (id === 'custom') {
             /* keep what's there (compacted to real entries), capped at MAX */
-            slots = s.activeVideos.filter((x) => x != null).slice(0, LAYOUT_MAX_SLOTS);
+            slots = s.activeMedia.filter((x) => x != null).slice(0, LAYOUT_MAX_SLOTS);
             if (slots.length === 0)
                 slots = [null];
         }
         else {
             /* resize to the fixed slot count, preserving slot order */
-            slots = Array.from({ length: tpl.slots }, (_, i) => s.activeVideos[i] ?? null);
+            slots = Array.from({ length: tpl.slots }, (_, i) => s.activeMedia[i] ?? null);
         }
-        return { currentLayoutTemplate: id, activeVideos: slots, layoutMode: true };
+        return { currentLayoutTemplate: id, activeMedia: slots, layoutMode: true };
     }),
     addToLayout: (videoId, slot) => set((s) => {
-        const slots = [...s.activeVideos];
+        const slots = [...s.activeMedia];
         if (slot != null) {
             if (slot < 0 || slot >= LAYOUT_MAX_SLOTS)
                 return {};
             while (slots.length <= slot)
                 slots.push(null); // grow for 'custom'
             slots[slot] = videoId;
-            return { activeVideos: slots, layoutMode: true };
+            return { activeMedia: slots, layoutMode: true };
         }
         /* no target slot → fill the first empty cell */
         const empty = slots.indexOf(null);
         if (empty >= 0) {
             slots[empty] = videoId;
-            return { activeVideos: slots, layoutMode: true };
+            return { activeMedia: slots, layoutMode: true };
         }
         /* full: 'custom' grows, fixed templates replace the last slot */
         if (s.currentLayoutTemplate === 'custom' && slots.length < LAYOUT_MAX_SLOTS) {
@@ -226,10 +226,10 @@ export const useStore = create((set, get) => ({
         else {
             slots[slots.length - 1] = videoId;
         }
-        return { activeVideos: slots, layoutMode: true };
+        return { activeMedia: slots, layoutMode: true };
     }),
     removeFromLayout: (slot) => set((s) => {
-        const slots = [...s.activeVideos];
+        const slots = [...s.activeMedia];
         if (slot < 0 || slot >= slots.length)
             return {};
         if (s.currentLayoutTemplate === 'custom') {
@@ -240,16 +240,16 @@ export const useStore = create((set, get) => ({
         else {
             slots[slot] = null;
         }
-        return { activeVideos: slots };
+        return { activeMedia: slots };
     }),
     swapSlots: (a, b) => set((s) => {
-        const slots = [...s.activeVideos];
+        const slots = [...s.activeMedia];
         if (a < 0 || b < 0 || a >= slots.length || b >= slots.length || a === b)
             return {};
         [slots[a], slots[b]] = [slots[b], slots[a]];
-        return { activeVideos: slots };
+        return { activeMedia: slots };
     }),
-    clearLayout: () => set((s) => ({ activeVideos: emptySlots(s.currentLayoutTemplate) })),
+    clearLayout: () => set((s) => ({ activeMedia: emptySlots(s.currentLayoutTemplate) })),
     setPlaybackQueue: (ids) => {
         const cur = get().playbackQueue;
         if (cur.length === ids.length && cur.every((x, i) => x === ids[i]))

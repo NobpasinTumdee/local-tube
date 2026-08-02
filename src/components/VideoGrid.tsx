@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Folder, List, Search } from 'lucide-react';
-import MediaCard from './VideoCard';
+import MediaCard from './MediaCard';
 import Breadcrumb from './Breadcrumb';
 import { useStore } from '../store/useStore';
 import { getChildFolders, getAllFilesRecursively } from '../utils/directoryScanner';

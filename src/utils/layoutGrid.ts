@@ -1,7 +1,7 @@
 import type { LayoutTemplateId } from '../store/useStore';
 
-/* Drag-and-drop payload types (video cards → slots, and slot ↔ slot). */
-export const DND_VIDEO_ID = 'application/x-localtube-video';
+/* Drag-and-drop payload types (media cards → slots, and slot ↔ slot). */
+export const DND_MEDIA_ID = 'application/x-localtube-media';
 export const DND_SLOT = 'application/x-localtube-slot';
 
 /*

@@ -8,7 +8,7 @@ import Sidebar from './components/Sidebar';
 import VideoGrid from './components/VideoGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
-import MultiVideoPlayer from './components/MultiVideoPlayer';
+import MediaViewer from './components/MediaViewer';
 export default function App() {
     const videos = useStore((s) => s.videos);
     const currentFolderPath = useStore((s) => s.currentFolderPath);
@@ -96,5 +96,5 @@ export default function App() {
         return _jsx(Welcome, { onPick: pickFolder });
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MultiVideoPlayer, {}) })), _jsx(VideoGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsx(VideoGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
 }

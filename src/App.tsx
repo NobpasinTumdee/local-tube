@@ -7,7 +7,7 @@ import Sidebar from './components/Sidebar';
 import VideoGrid from './components/VideoGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
-import MultiVideoPlayer from './components/MultiVideoPlayer';
+import MediaViewer from './components/MediaViewer';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -105,7 +105,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto p-6">
             {layoutMode && (
               <div className="mb-6">
-                <MultiVideoPlayer />
+                <MediaViewer />
               </div>
             )}
             <VideoGrid videos={visible} />

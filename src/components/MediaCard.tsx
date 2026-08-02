@@ -1,9 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Image as ImageIcon, PlaySquare, Volume2, VolumeX, Plus, Play, Clock } from 'lucide-react';
+import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
 import { formatDuration, formatRelative, formatResolution } from '../utils/format';
-import { DND_VIDEO_ID } from '../utils/layoutGrid';
+import { DND_MEDIA_ID } from '../utils/layoutGrid';
 import type { MediaEntry } from '../utils/directoryScanner';
 
 interface Props {
@@ -27,25 +27,24 @@ export default function MediaCard({ video }: Props) {
 
   const isImage = video.mediaType === 'image';
 
-  /* ── hover preview state ── */
+  /* ── hover preview state (videos only) ── */
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const previewUrlRef = useRef<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewMuted, setPreviewMuted] = useState(true);
 
-  /* lazy thumbnail via IntersectionObserver (unchanged pipeline + dimensions) */
+  /* lazy thumbnail via IntersectionObserver.
+     Videos → canvas frame extraction; images → object URL directly (no canvas). */
   const load = useCallback(async () => {
     if (requested || meta?.thumbnailUrl) return;
     setRequested(true);
     try {
       const file = await video.handle.getFile();
       if (isImage) {
-        /* images: object URL is the thumbnail; dimensions read on <img> load */
         const url = URL.createObjectURL(file);
         setVideoMeta(video.id, { thumbnailUrl: url, duration: undefined });
       } else {
-        /* videos: extract frame + duration + source dimensions via canvas */
         const result = await thumbnailQueue.run(() => generateThumbnail(file));
         setVideoMeta(video.id, {
           thumbnailUrl: result.dataUrl,
@@ -72,7 +71,7 @@ export default function MediaCard({ video }: Props) {
     return () => obs.disconnect();
   }, [load]);
 
-  /* ── Release any preview blob URL on unmount (memory-leak guard) ── */
+  /* ── Release preview blob URL on unmount (memory-leak guard) ── */
   useEffect(() => {
     return () => {
       clearTimeout(hoverTimerRef.current);
@@ -111,10 +110,7 @@ export default function MediaCard({ video }: Props) {
     clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = setTimeout(startPreview, HOVER_DELAY_MS);
   };
-
-  const onMouseLeave = () => {
-    stopPreview();
-  };
+  const onMouseLeave = () => stopPreview();
 
   const thumb = meta?.thumbnailUrl;
   const dur = meta?.duration;
@@ -125,13 +121,13 @@ export default function MediaCard({ video }: Props) {
   const isVertical = !!w && !!h && h > w;
   const resolution = formatResolution(w, h);
 
-  /* In layout mode a click drops the video into the next free slot. */
-  const layoutTarget = layoutMode && !isImage;
+  /* In layout mode a click drops the item (video OR image) into a slot. */
+  const layoutTarget = layoutMode;
 
   function handleClick() {
     stopPreview();
+    if (layoutMode) { addToLayout(video.id); return; }
     if (isImage) viewImage(video.id);
-    else if (layoutTarget) addToLayout(video.id);
     else playVideo(video.id);
   }
 
@@ -142,11 +138,12 @@ export default function MediaCard({ video }: Props) {
       onClick={handleClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      /* Videos and images are both draggable onto a specific grid slot */
       draggable={layoutTarget}
       onDragStart={
         layoutTarget
           ? (e) => {
-              e.dataTransfer.setData(DND_VIDEO_ID, video.id);
+              e.dataTransfer.setData(DND_MEDIA_ID, video.id);
               e.dataTransfer.effectAllowed = 'copy';
             }
           : undefined
@@ -199,6 +196,12 @@ export default function MediaCard({ video }: Props) {
           />
         )}
 
+        {/* ── Type badge (differentiates Video vs Image at a glance) ── */}
+        <span className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90 backdrop-blur-sm">
+          {isImage ? <ImageIcon className="h-3 w-3" /> : <Film className="h-3 w-3" />}
+          {isImage ? 'Photo' : 'Video'}
+        </span>
+
         {/* ── Play glyph that blooms on hover (video only, no preview yet) ── */}
         {!isImage && !previewUrl && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 group-hover:opacity-100">
@@ -220,14 +223,6 @@ export default function MediaCard({ video }: Props) {
           >
             {previewMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
-        )}
-
-        {/* ── Image badge (top-left) ── */}
-        {isImage && (
-          <span className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90 backdrop-blur-sm">
-            <ImageIcon className="h-3 w-3" />
-            Photo
-          </span>
         )}
 
         {/* ── Metadata rail: hidden by default, slides up over the thumbnail on hover ── */}

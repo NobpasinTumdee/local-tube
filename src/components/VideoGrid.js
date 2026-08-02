@@ -2,7 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Folder, List, Search } from 'lucide-react';
-import MediaCard from './VideoCard';
+import MediaCard from './MediaCard';
 import Breadcrumb from './Breadcrumb';
 import { useStore } from '../store/useStore';
 import { getChildFolders, getAllFilesRecursively } from '../utils/directoryScanner';

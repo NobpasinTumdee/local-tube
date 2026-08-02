@@ -3,19 +3,23 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, Trash2, X, LayoutGrid } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { getGridConfig } from '../utils/layoutGrid';
-import VideoTile from './VideoTile';
+import MediaTile from './MediaTile';
 
 /*
- * The multi-video grid. Renders a CSS-Grid whose shape comes from the active
- * layout template, with one <VideoTile> per slot. A master control bar drives
- * every registered <video> element at once (play/pause/mute all).
+ * The multi-media grid. Renders a CSS-Grid whose shape comes from the active
+ * layout template, with one <MediaTile> per slot — each tile decides on its own
+ * whether to be a video player or an image viewer.
+ *
+ * A master control bar drives every registered <video> element at once. Image
+ * tiles register nothing, so play/pause/mute-all naturally affect videos only.
  *
  * Framer Motion `layout` on the container + each cell gives fluid morphing when
  * the template changes or cells are added/removed.
  */
-export default function MultiVideoPlayer() {
+export default function MediaViewer() {
   const template = useStore((s) => s.currentLayoutTemplate);
-  const activeVideos = useStore((s) => s.activeVideos);
+  const activeMedia = useStore((s) => s.activeMedia);
+  const videos = useStore((s) => s.videos);
   const setLayoutMode = useStore((s) => s.setLayoutMode);
   const clearLayout = useStore((s) => s.clearLayout);
 
@@ -31,8 +35,11 @@ export default function MultiVideoPlayer() {
   const pauseAll = () => forEachVideo((v) => v.pause());
   const muteAll = (m: boolean) => forEachVideo((v) => { v.muted = m; });
 
-  const filled = activeVideos.filter(Boolean).length;
-  const cfg = getGridConfig(template, activeVideos.length);
+  const filled = activeMedia.filter(Boolean).length;
+  const videoCount = activeMedia.filter(
+    (id) => id && videos.find((v) => v.id === id)?.mediaType === 'video',
+  ).length;
+  const cfg = getGridConfig(template, activeMedia.length);
 
   return (
     <motion.section
@@ -47,14 +54,14 @@ export default function MultiVideoPlayer() {
         <LayoutGrid className="h-4 w-4 text-primary" />
         <span className="text-sm font-semibold text-content">Layout</span>
         <span className="rounded-full bg-content/10 px-2 py-0.5 text-[11px] tabular-nums text-content/60">
-          {filled} playing
+          {filled} item{filled === 1 ? '' : 's'}
         </span>
 
         <div className="ml-auto flex items-center gap-1">
-          <MasterBtn label="Play all" onClick={playAll}><Play className="h-4 w-4" /></MasterBtn>
-          <MasterBtn label="Pause all" onClick={pauseAll}><Pause className="h-4 w-4" /></MasterBtn>
-          <MasterBtn label="Unmute all" onClick={() => muteAll(false)}><Volume2 className="h-4 w-4" /></MasterBtn>
-          <MasterBtn label="Mute all" onClick={() => muteAll(true)}><VolumeX className="h-4 w-4" /></MasterBtn>
+          <MasterBtn label="Play all videos" onClick={playAll} disabled={videoCount === 0}><Play className="h-4 w-4" /></MasterBtn>
+          <MasterBtn label="Pause all videos" onClick={pauseAll} disabled={videoCount === 0}><Pause className="h-4 w-4" /></MasterBtn>
+          <MasterBtn label="Unmute all videos" onClick={() => muteAll(false)} disabled={videoCount === 0}><Volume2 className="h-4 w-4" /></MasterBtn>
+          <MasterBtn label="Mute all videos" onClick={() => muteAll(true)} disabled={videoCount === 0}><VolumeX className="h-4 w-4" /></MasterBtn>
           <span className="mx-1 h-5 w-px bg-content/10" />
           <MasterBtn label="Clear layout" onClick={clearLayout} disabled={filled === 0}>
             <Trash2 className="h-4 w-4" />
@@ -67,12 +74,9 @@ export default function MultiVideoPlayer() {
 
       {/* ── The grid ── */}
       <div className="p-2 sm:p-3">
-        <motion.div
-          layout
-          className={`grid h-[46vh] gap-2 sm:h-[58vh] ${cfg.container}`}
-        >
+        <motion.div layout className={`grid h-[46vh] gap-2 sm:h-[58vh] ${cfg.container}`}>
           <AnimatePresence initial={false}>
-            {activeVideos.map((id, i) => (
+            {activeMedia.map((id, i) => (
               <motion.div
                 key={`slot-${i}`}
                 layout
@@ -82,7 +86,7 @@ export default function MultiVideoPlayer() {
                 transition={{ type: 'spring', damping: 28, stiffness: 340, mass: 0.7 }}
                 className={`relative min-h-0 min-w-0 ${cfg.spanFor(i)}`}
               >
-                <VideoTile slot={i} videoId={id} onRegister={register} />
+                <MediaTile slot={i} mediaId={id} onRegister={register} />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -90,7 +94,7 @@ export default function MultiVideoPlayer() {
 
         {filled === 0 && (
           <p className="mt-3 text-center text-xs text-content/40">
-            Click any video in the library below to drop it into a slot — or drag it onto a specific cell.
+            Click any video or image in the library below to drop it into a slot — or drag it onto a specific cell.
           </p>
         )}
       </div>
@@ -99,10 +103,7 @@ export default function MultiVideoPlayer() {
 }
 
 function MasterBtn({
-  label,
-  onClick,
-  disabled,
-  children,
+  label, onClick, disabled, children,
 }: {
   label: string;
   onClick: () => void;
