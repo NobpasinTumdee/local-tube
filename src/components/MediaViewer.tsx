@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, Trash2, X, LayoutGrid, Maximize, Minimize } from 'lucide-react';
-import { useStore } from '../store/useStore';
+import { useStore, templateById } from '../store/useStore';
 import { getGridConfig } from '../utils/layoutGrid';
 import MediaTile from './MediaTile';
 
@@ -20,6 +20,8 @@ export default function MediaViewer() {
   const template = useStore((s) => s.currentLayoutTemplate);
   const activeMedia = useStore((s) => s.activeMedia);
   const videos = useStore((s) => s.videos);
+  const customCols = useStore((s) => s.customCols);
+  const customRows = useStore((s) => s.customRows);
   const setLayoutMode = useStore((s) => s.setLayoutMode);
   const clearLayout = useStore((s) => s.clearLayout);
 
@@ -54,7 +56,11 @@ export default function MediaViewer() {
   const videoCount = activeMedia.filter(
     (id) => id && videos.find((v) => v.id === id)?.mediaType === 'video',
   ).length;
-  const cfg = getGridConfig(template, activeMedia.length);
+  const cfg = getGridConfig(templateById(template), {
+    length: activeMedia.length,
+    cols: customCols,
+    rows: customRows,
+  });
 
   return (
     <motion.section
@@ -100,7 +106,8 @@ export default function MediaViewer() {
       <div className={`p-2 sm:p-3 ${isFullscreen ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
         <motion.div
           layout
-          className={`grid gap-2 ${isFullscreen ? 'h-full flex-1' : 'h-[46vh] sm:h-[58vh]'} ${cfg.container}`}
+          style={cfg.style}
+          className={`grid gap-2 ${isFullscreen ? 'h-full flex-1' : 'h-[46vh] sm:h-[58vh]'}`}
         >
           <AnimatePresence initial={false}>
             {activeMedia.map((id, i) => (
@@ -111,7 +118,8 @@ export default function MediaViewer() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.92 }}
                 transition={{ type: 'spring', damping: 28, stiffness: 340, mass: 0.7 }}
-                className={`relative min-h-0 min-w-0 ${cfg.spanFor(i)}`}
+                style={cfg.slotStyle(i)}
+                className="relative min-h-0 min-w-0"
               >
                 <MediaTile slot={i} mediaId={id} onRegister={register} />
               </motion.div>

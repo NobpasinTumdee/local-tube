@@ -1,50 +1,62 @@
-import type { LayoutTemplateId } from '../store/useStore';
+import type { CSSProperties } from 'react';
+import type { LayoutTemplateDef } from '../store/useStore';
 
 /* Drag-and-drop payload types (media cards → slots, and slot ↔ slot). */
 export const DND_MEDIA_ID = 'application/x-localtube-media';
 export const DND_SLOT = 'application/x-localtube-slot';
 
 /*
- * Maps a layout template → Tailwind CSS-Grid classes.
+ * Maps a layout template → inline CSS-Grid styles.
  *
- * The literal class strings below are what Tailwind's JIT scanner picks up,
- * so every grid-cols/grid-rows/col-span/row-span used here is guaranteed to
- * exist in the final CSS (don't build these class names dynamically elsewhere).
+ * We use inline `gridTemplateColumns/Rows` (not Tailwind classes) so ANY grid
+ * size works — including the user-defined custom grid and the adaptive 'auto'
+ * layout — without Tailwind having to pre-generate every col/row/span class.
  */
 export interface GridConfig {
-  /** Container grid classes (columns + rows). */
-  container: string;
-  /** Per-slot span classes, by slot index. */
-  spanFor: (index: number) => string;
+  /** Styles for the grid container. */
+  style: CSSProperties;
+  /** Per-slot span styles (undefined = a plain 1×1 cell). */
+  slotStyle: (index: number) => CSSProperties | undefined;
 }
 
-const noSpan = () => '';
+interface Opts {
+  /** Number of filled+empty cells currently present (drives 'auto'). */
+  length: number;
+  /** Live custom grid size (used only by the 'custom' template). */
+  cols: number;
+  rows: number;
+}
 
-/* '1 large + 2 small' — first cell spans the full height on the left. */
-const onePlusTwo: GridConfig = {
-  container: 'grid-cols-3 grid-rows-2',
-  spanFor: (i) => (i === 0 ? 'col-span-2 row-span-2' : 'col-span-1 row-span-1'),
-};
+export function getGridConfig(t: LayoutTemplateDef, opts: Opts): GridConfig {
+  let cols = t.cols;
+  let rows = t.rows;
+  let spans = t.spans;
 
-export function getGridConfig(id: LayoutTemplateId, length: number): GridConfig {
-  switch (id) {
-    case 'single':
-      return { container: 'grid-cols-1 grid-rows-1', spanFor: noSpan };
-    case 'sideBySide':
-      return { container: 'grid-cols-2 grid-rows-1', spanFor: noSpan };
-    case 'onePlusTwo':
-      return onePlusTwo;
-    case 'grid2x2':
-      return { container: 'grid-cols-2 grid-rows-2', spanFor: noSpan };
-    case 'custom': {
-      /* 'Auto' — the grid reshapes itself to however many cells exist. */
-      const n = Math.max(1, length);
-      if (n <= 1) return { container: 'grid-cols-1 grid-rows-1', spanFor: noSpan };
-      if (n === 2) return { container: 'grid-cols-2 grid-rows-1', spanFor: noSpan };
-      if (n === 3) return onePlusTwo;
-      return { container: 'grid-cols-2 grid-rows-2', spanFor: noSpan };
-    }
-    default:
-      return { container: 'grid-cols-1 grid-rows-1', spanFor: noSpan };
+  if (t.id === 'auto') {
+    /* 'Auto' reshapes itself to however many cells exist. */
+    const n = Math.max(1, opts.length);
+    if (n <= 1) { cols = 1; rows = 1; spans = undefined; }
+    else if (n === 2) { cols = 2; rows = 1; spans = undefined; }
+    else if (n === 3) { cols = 3; rows = 2; spans = { 0: { col: 2, row: 2 } }; }
+    else { cols = 2; rows = 2; spans = undefined; }
+  } else if (t.id === 'custom') {
+    cols = Math.max(1, opts.cols);
+    rows = Math.max(1, opts.rows);
+    spans = undefined;
   }
+
+  return {
+    style: {
+      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+      gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+    },
+    slotStyle: (i) => {
+      const s = spans?.[i];
+      if (!s) return undefined;
+      return {
+        gridColumn: s.col ? `span ${s.col} / span ${s.col}` : undefined,
+        gridRow: s.row ? `span ${s.row} / span ${s.row}` : undefined,
+      };
+    },
+  };
 }

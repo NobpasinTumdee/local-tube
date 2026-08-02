@@ -65,21 +65,36 @@ export function applyTheme(id) {
     }
 }
 const RECENT_LIMIT = 12;
-/* Hard cap on simultaneous videos — see the Performance notes below. */
-export const LAYOUT_MAX_SLOTS = 4;
+/* Hard cap on simultaneous tiles (custom grids go up to 4×4). Videos are muted
+ * + preload=metadata, but large grids still cost decode/bandwidth — see notes. */
+export const LAYOUT_MAX_SLOTS = 16;
+export const CUSTOM_MIN = 1;
+export const CUSTOM_MAX = 4;
 export const LAYOUT_TEMPLATES = [
-    { id: 'single', name: 'Single', slots: 1 },
-    { id: 'sideBySide', name: 'Side by Side', slots: 2 },
-    { id: 'onePlusTwo', name: '1 + 2', slots: 3 },
-    { id: 'grid2x2', name: '2 × 2', slots: 4 },
-    { id: 'custom', name: 'Auto', slots: LAYOUT_MAX_SLOTS },
+    { id: 'single', name: 'Single', cols: 1, rows: 1, slots: 1 },
+    { id: 'sideBySide', name: 'Side by Side', cols: 2, rows: 1, slots: 2 },
+    { id: 'stacked', name: 'Stacked', cols: 1, rows: 2, slots: 2 },
+    { id: 'threeCol', name: '3 Columns', cols: 3, rows: 1, slots: 3 },
+    { id: 'onePlusTwo', name: '1 + 2', cols: 3, rows: 2, slots: 3, spans: { 0: { col: 2, row: 2 } } },
+    { id: 'featured', name: '1 + 3', cols: 4, rows: 3, slots: 4, spans: { 0: { col: 3, row: 3 } } },
+    { id: 'grid2x2', name: '2 × 2', cols: 2, rows: 2, slots: 4 },
+    { id: 'grid3x2', name: '3 × 2', cols: 3, rows: 2, slots: 6 },
+    { id: 'grid3x3', name: '3 × 3', cols: 3, rows: 3, slots: 9 },
+    { id: 'auto', name: 'Auto', cols: 2, rows: 2, slots: 4 },
+    { id: 'custom', name: 'Custom', cols: 2, rows: 2, slots: 4 },
 ];
-const templateById = (id) => LAYOUT_TEMPLATES.find((t) => t.id === id) ?? LAYOUT_TEMPLATES[0];
-/** Build a fresh slot array for a template (all empty). */
-function emptySlots(id) {
+export const templateById = (id) => LAYOUT_TEMPLATES.find((t) => t.id === id) ?? LAYOUT_TEMPLATES[0];
+/** Number of cells a template currently occupies. */
+export function slotCountFor(id, customCols, customRows) {
+    if (id === 'auto')
+        return 1; // grows as items are added
     if (id === 'custom')
-        return [null];
-    return Array.from({ length: templateById(id).slots }, () => null);
+        return Math.max(1, customCols * customRows);
+    return templateById(id).slots;
+}
+/** Build a fresh slot array of `n` empty cells. */
+function emptySlots(n) {
+    return Array.from({ length: Math.max(1, n) }, () => null);
 }
 export const useStore = create((set, get) => ({
     rootName: '',
@@ -100,7 +115,9 @@ export const useStore = create((set, get) => ({
     currentTheme: getInitialTheme(),
     layoutMode: false,
     currentLayoutTemplate: 'grid2x2',
-    activeMedia: emptySlots('grid2x2'),
+    activeMedia: emptySlots(slotCountFor('grid2x2', 2, 2)),
+    customCols: 2,
+    customRows: 2,
     playbackQueue: [],
     recentVideoIds: [],
     /* legacy */
@@ -189,27 +206,32 @@ export const useStore = create((set, get) => ({
     }),
     toggleLayoutMode: () => get().setLayoutMode(!get().layoutMode),
     setLayoutTemplate: (id) => set((s) => {
-        const tpl = templateById(id);
         let slots;
-        if (id === 'custom') {
-            /* keep what's there (compacted to real entries), capped at MAX */
+        if (id === 'auto') {
+            /* adaptive: keep only the real entries (grid reshapes to the count) */
             slots = s.activeMedia.filter((x) => x != null).slice(0, LAYOUT_MAX_SLOTS);
             if (slots.length === 0)
                 slots = [null];
         }
         else {
-            /* resize to the fixed slot count, preserving slot order */
-            slots = Array.from({ length: tpl.slots }, (_, i) => s.activeMedia[i] ?? null);
+            /* resize to this template's cell count, preserving slot order */
+            const n = slotCountFor(id, s.customCols, s.customRows);
+            slots = Array.from({ length: n }, (_, i) => s.activeMedia[i] ?? null);
         }
         return { currentLayoutTemplate: id, activeMedia: slots, layoutMode: true };
     }),
     addToLayout: (videoId, slot) => set((s) => {
         const slots = [...s.activeMedia];
+        const isAuto = s.currentLayoutTemplate === 'auto';
         if (slot != null) {
             if (slot < 0 || slot >= LAYOUT_MAX_SLOTS)
                 return {};
-            while (slots.length <= slot)
-                slots.push(null); // grow for 'custom'
+            if (slot >= slots.length) {
+                if (!isAuto)
+                    return {}; // fixed grids can't grow past their cells
+                while (slots.length <= slot)
+                    slots.push(null);
+            }
             slots[slot] = videoId;
             return { activeMedia: slots, layoutMode: true };
         }
@@ -219,8 +241,8 @@ export const useStore = create((set, get) => ({
             slots[empty] = videoId;
             return { activeMedia: slots, layoutMode: true };
         }
-        /* full: 'custom' grows, fixed templates replace the last slot */
-        if (s.currentLayoutTemplate === 'custom' && slots.length < LAYOUT_MAX_SLOTS) {
+        /* full: 'auto' grows, fixed/custom grids replace the last slot */
+        if (isAuto && slots.length < LAYOUT_MAX_SLOTS) {
             slots.push(videoId);
         }
         else {
@@ -232,7 +254,8 @@ export const useStore = create((set, get) => ({
         const slots = [...s.activeMedia];
         if (slot < 0 || slot >= slots.length)
             return {};
-        if (s.currentLayoutTemplate === 'custom') {
+        if (s.currentLayoutTemplate === 'auto') {
+            /* adaptive grid compacts so the layout reflows */
             slots.splice(slot, 1);
             if (slots.length === 0)
                 slots.push(null);
@@ -249,7 +272,16 @@ export const useStore = create((set, get) => ({
         [slots[a], slots[b]] = [slots[b], slots[a]];
         return { activeMedia: slots };
     }),
-    clearLayout: () => set((s) => ({ activeMedia: emptySlots(s.currentLayoutTemplate) })),
+    clearLayout: () => set((s) => ({ activeMedia: emptySlots(slotCountFor(s.currentLayoutTemplate, s.customCols, s.customRows)) })),
+    setCustomGrid: (cols, rows) => set((s) => {
+        const c = Math.max(CUSTOM_MIN, Math.min(CUSTOM_MAX, Math.round(cols)));
+        const r = Math.max(CUSTOM_MIN, Math.min(CUSTOM_MAX, Math.round(rows)));
+        /* If the custom grid is live, resize its slots (preserving order). */
+        const activeMedia = s.currentLayoutTemplate === 'custom'
+            ? Array.from({ length: c * r }, (_, i) => s.activeMedia[i] ?? null)
+            : s.activeMedia;
+        return { customCols: c, customRows: r, activeMedia };
+    }),
     setPlaybackQueue: (ids) => {
         const cur = get().playbackQueue;
         if (cur.length === ids.length && cur.every((x, i) => x === ids[i]))
