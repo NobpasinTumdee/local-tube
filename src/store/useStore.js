@@ -114,6 +114,7 @@ export const useStore = create()(persist((set, get) => ({
     /* display preferences — rehydrated by persist */
     cardAspectRatio: '16/9',
     gridColumns: 'auto',
+    isAmbientMode: true,
     currentVideoId: null,
     playerMode: 'none',
     theaterMode: false,
@@ -173,6 +174,8 @@ export const useStore = create()(persist((set, get) => ({
     setViewMode: (m) => set({ viewMode: m }),
     setCardAspectRatio: (r) => set({ cardAspectRatio: r }),
     setGridColumns: (c) => set({ gridColumns: c }),
+    setAmbientMode: (on) => set({ isAmbientMode: on }),
+    toggleAmbientMode: () => set((s) => ({ isAmbientMode: !s.isAmbientMode })),
     playVideo: (id) => set((s) => ({
         currentVideoId: id,
         playerMode: 'full',
@@ -437,5 +440,6 @@ export const useStore = create()(persist((set, get) => ({
         playbackProgress: s.playbackProgress,
         cardAspectRatio: s.cardAspectRatio,
         gridColumns: s.gridColumns,
+        isAmbientMode: s.isAmbientMode,
     }),
 }));

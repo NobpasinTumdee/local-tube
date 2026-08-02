@@ -249,6 +249,7 @@ interface StoreState {
   /* display preferences (persisted) */
   cardAspectRatio: CardAspectRatio;
   gridColumns: GridColumns;
+  isAmbientMode: boolean;   // cinema-glow behind the player
 
   /* video player */
   currentVideoId: string | null;
@@ -303,6 +304,8 @@ interface StoreState {
   setViewMode: (m: ViewMode) => void;
   setCardAspectRatio: (r: CardAspectRatio) => void;
   setGridColumns: (c: GridColumns) => void;
+  setAmbientMode: (on: boolean) => void;
+  toggleAmbientMode: () => void;
 
   /* video player actions */
   playVideo: (id: string) => void;
@@ -377,6 +380,7 @@ export const useStore = create<StoreState>()(
   /* display preferences — rehydrated by persist */
   cardAspectRatio: '16/9',
   gridColumns: 'auto',
+  isAmbientMode: true,
 
   currentVideoId: null,
   playerMode: 'none',
@@ -449,6 +453,8 @@ export const useStore = create<StoreState>()(
   setViewMode: (m) => set({ viewMode: m }),
   setCardAspectRatio: (r) => set({ cardAspectRatio: r }),
   setGridColumns: (c) => set({ gridColumns: c }),
+  setAmbientMode: (on) => set({ isAmbientMode: on }),
+  toggleAmbientMode: () => set((s) => ({ isAmbientMode: !s.isAmbientMode })),
 
   playVideo: (id) =>
     set((s) => ({
@@ -743,6 +749,7 @@ export const useStore = create<StoreState>()(
         playbackProgress: s.playbackProgress,
         cardAspectRatio: s.cardAspectRatio,
         gridColumns: s.gridColumns,
+        isAmbientMode: s.isAmbientMode,
       }),
     },
   ),

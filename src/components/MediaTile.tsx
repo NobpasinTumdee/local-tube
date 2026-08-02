@@ -6,6 +6,7 @@ import {
 import { useStore } from '../store/useStore';
 import { formatDuration } from '../utils/format';
 import { DND_MEDIA_ID, DND_SLOT } from '../utils/layoutGrid';
+import AmbientGlow from './AmbientGlow';
 
 interface Props {
   slot: number;
@@ -31,6 +32,10 @@ export default function MediaTile({ slot, mediaId, onRegister }: Props) {
   const addToLayout = useStore((s) => s.addToLayout);
   const removeFromLayout = useStore((s) => s.removeFromLayout);
   const swapSlots = useStore((s) => s.swapSlots);
+  const isAmbientMode = useStore((s) => s.isAmbientMode);
+  /* Perf guard: cap the glow to layouts with ≤ 2 media items. */
+  const filledCount = useStore((s) => s.activeMedia.filter(Boolean).length);
+  const ambientOn = isAmbientMode && filledCount <= 2;
 
   const item = useMemo(() => videos.find((v) => v.id === mediaId) ?? null, [videos, mediaId]);
   const isImage = item?.mediaType === 'image';
@@ -187,10 +192,13 @@ export default function MediaTile({ slot, mediaId, onRegister }: Props) {
       onDragLeave={() => setDragOver(false)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`group relative h-full w-full overflow-hidden rounded-xl bg-black ring-1 transition ${
+      className={`group relative isolate h-full w-full overflow-hidden rounded-xl bg-black ring-1 transition ${
         dragOver ? 'ring-2 ring-primary/80' : 'ring-content/10'
       }`}
     >
+      {/* Ambient glow behind the video (perf-guarded; video tiles only) */}
+      {!isImage && <AmbientGlow videoRef={videoRef} active={ambientOn && !!src} className="z-[-1]" />}
+
       {/* ── BODY: image viewer or video player ── */}
       {isImage ? (
         <div
@@ -226,7 +234,7 @@ export default function MediaTile({ slot, mediaId, onRegister }: Props) {
           loop
           playsInline
           preload="metadata"
-          className="h-full w-full bg-black object-contain"
+          className="relative h-full w-full object-contain"
           poster={videoMeta[item.id]?.thumbnailUrl}
           onClick={togglePlay}
           onPlay={() => setPlaying(true)}

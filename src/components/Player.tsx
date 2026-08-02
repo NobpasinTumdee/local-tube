@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PlayCircle, X } from 'lucide-react';
+import { PlayCircle, X, Sparkles } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import AmbientGlow from './AmbientGlow';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
 
@@ -66,6 +67,8 @@ export default function Player() {
   const playbackQueue = useStore((s) => s.playbackQueue);
   const getNextVideoId = useStore((s) => s.getNextVideoId);
   const setPlaybackProgress = useStore((s) => s.setPlaybackProgress);
+  const isAmbientMode = useStore((s) => s.isAmbientMode);
+  const toggleAmbientMode = useStore((s) => s.toggleAmbientMode);
 
   const video = useMemo(
     () => videos.find((v) => v.id === currentVideoId),
@@ -326,7 +329,7 @@ export default function Player() {
         <div className={isFull ? `flex flex-col ${theaterMode ? 'w-full' : 'w-full lg:flex-1'}` : ''}>
           <div
             ref={containerRef}
-            className={`group relative bg-black ${
+            className={`group relative isolate bg-black ${
               isFull
                 ? 'flex w-full items-center justify-center'
                 : 'aspect-video w-full'
@@ -335,6 +338,9 @@ export default function Player() {
             onMouseMove={isFull ? resetHideTimer : undefined}
             onMouseLeave={isFull ? () => { if (!videoRef.current?.paused) setShowControls(false); } : undefined}
           >
+            {/* Ambient cinema glow (full mode only) — sits behind the video */}
+            {isFull && <AmbientGlow videoRef={videoRef} active={isAmbientMode} className="z-[-1]" />}
+
             <video
               ref={videoRef}
               src={src || undefined}
@@ -418,6 +424,19 @@ export default function Player() {
                   </span>
 
                   <div className="flex-1" />
+
+                  {/* ambient glow toggle */}
+                  <button
+                    onClick={toggleAmbientMode}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${
+                      isAmbientMode ? 'text-primary' : 'text-content/70 hover:text-content'
+                    }`}
+                    aria-label="Ambient glow"
+                    aria-pressed={isAmbientMode}
+                    title={isAmbientMode ? 'Ambient glow: on' : 'Ambient glow: off'}
+                  >
+                    <Sparkles className="h-5 w-5" />
+                  </button>
 
                   {/* mini-player button */}
                   <button onClick={toggleMiniPlayer} className="flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content" aria-label="Mini player (i)" title="Mini player (i)">
