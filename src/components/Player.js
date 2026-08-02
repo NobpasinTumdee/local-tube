@@ -28,6 +28,7 @@ export default function Player() {
     const toggleMiniPlayer = useStore((s) => s.toggleMiniPlayer);
     const playbackQueue = useStore((s) => s.playbackQueue);
     const getNextVideoId = useStore((s) => s.getNextVideoId);
+    const setPlaybackProgress = useStore((s) => s.setPlaybackProgress);
     const video = useMemo(() => videos.find((v) => v.id === currentVideoId), [videos, currentVideoId]);
     /*
      * Next video = files[currentIndex + 1] within the current playback queue
@@ -86,6 +87,18 @@ export default function Player() {
     const videoRef = useRef(null);
     const containerRef = useRef(null);
     const progressRef = useRef(null);
+    const lastSaveRef = useRef(0);
+    /* Persist "continue watching" position (cleared when finished / barely started). */
+    const saveProgress = useCallback(() => {
+        const el = videoRef.current;
+        if (!el || !video || !el.duration)
+            return;
+        const t = el.currentTime;
+        if (t > 3 && t < el.duration - 10)
+            setPlaybackProgress(video.id, t);
+        else if (t >= el.duration - 10)
+            setPlaybackProgress(video.id, 0); // finished → clear
+    }, [video, setPlaybackProgress]);
     const [src, setSrc] = useState(null);
     const [playing, setPlaying] = useState(false);
     const [current, setCurrent] = useState(0);
@@ -148,13 +161,14 @@ export default function Player() {
         })();
         return () => {
             cancelled = true;
+            saveProgress(); // remember where we left off before swapping/closing
             if (url)
                 URL.revokeObjectURL(url);
             setSrc(null);
             setCurrent(0);
             setDuration(0);
         };
-    }, [video]);
+    }, [video, saveProgress]);
     /* auto-play on src change */
     useEffect(() => {
         const el = videoRef.current;
@@ -263,7 +277,28 @@ export default function Player() {
                     : 'fixed bottom-5 right-5 z-[200] flex w-[340px] flex-col overflow-hidden rounded-xl border border-content/10 bg-surface shadow-2xl shadow-black/60', children: [_jsxs("div", { className: isFull ? `flex flex-col ${theaterMode ? 'w-full' : 'w-full lg:flex-1'}` : '', children: [_jsxs("div", { ref: containerRef, className: `group relative bg-black ${isFull
                                     ? 'flex w-full items-center justify-center'
                                     : 'aspect-video w-full'}`, style: isFull ? { height: '80vh' } : undefined, onMouseMove: isFull ? resetHideTimer : undefined, onMouseLeave: isFull ? () => { if (!videoRef.current?.paused)
-                                    setShowControls(false); } : undefined, children: [_jsx("video", { ref: videoRef, src: src || undefined, className: "h-full w-full object-contain", onTimeUpdate: () => setCurrent(videoRef.current?.currentTime ?? 0), onLoadedMetadata: () => setDuration(videoRef.current?.duration ?? 0), onPlay: () => setPlaying(true), onPause: () => setPlaying(false), onEnded: () => {
+                                    setShowControls(false); } : undefined, children: [_jsx("video", { ref: videoRef, src: src || undefined, className: "h-full w-full object-contain", onTimeUpdate: () => {
+                                            const el = videoRef.current;
+                                            setCurrent(el?.currentTime ?? 0);
+                                            const now = Date.now();
+                                            if (el && now - lastSaveRef.current > 5000) {
+                                                lastSaveRef.current = now;
+                                                saveProgress();
+                                            }
+                                        }, onLoadedMetadata: () => {
+                                            const el = videoRef.current;
+                                            if (!el)
+                                                return;
+                                            setDuration(el.duration ?? 0);
+                                            /* resume from saved position (continue watching) */
+                                            if (video) {
+                                                const saved = useStore.getState().playbackProgress[video.id];
+                                                if (saved && saved > 3 && el.duration && saved < el.duration - 10)
+                                                    el.currentTime = saved;
+                                            }
+                                        }, onPlay: () => setPlaying(true), onPause: () => { setPlaying(false); saveProgress(); }, onEnded: () => {
+                                            if (video)
+                                                setPlaybackProgress(video.id, 0); // finished → clear resume point
                                             if (nextVideo)
                                                 startCountdown();
                                         }, onClick: () => { const el = videoRef.current; el.paused ? el.play() : el.pause(); } }), isFull && countdown != null && nextVideo && (_jsx(CountdownOverlay, { seconds: countdown, total: COUNTDOWN_SECS, next: nextVideo, thumbnail: videoMeta[nextVideo.id]?.thumbnailUrl, onPlayNow: () => {

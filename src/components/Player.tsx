@@ -65,6 +65,7 @@ export default function Player() {
   const toggleMiniPlayer = useStore((s) => s.toggleMiniPlayer);
   const playbackQueue = useStore((s) => s.playbackQueue);
   const getNextVideoId = useStore((s) => s.getNextVideoId);
+  const setPlaybackProgress = useStore((s) => s.setPlaybackProgress);
 
   const video = useMemo(
     () => videos.find((v) => v.id === currentVideoId),
@@ -119,6 +120,16 @@ export default function Player() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const lastSaveRef = useRef(0);
+
+  /* Persist "continue watching" position (cleared when finished / barely started). */
+  const saveProgress = useCallback(() => {
+    const el = videoRef.current;
+    if (!el || !video || !el.duration) return;
+    const t = el.currentTime;
+    if (t > 3 && t < el.duration - 10) setPlaybackProgress(video.id, t);
+    else if (t >= el.duration - 10) setPlaybackProgress(video.id, 0); // finished → clear
+  }, [video, setPlaybackProgress]);
 
   const [src, setSrc] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -182,12 +193,13 @@ export default function Player() {
     })();
     return () => {
       cancelled = true;
+      saveProgress(); // remember where we left off before swapping/closing
       if (url) URL.revokeObjectURL(url);
       setSrc(null);
       setCurrent(0);
       setDuration(0);
     };
-  }, [video]);
+  }, [video, saveProgress]);
 
   /* auto-play on src change */
   useEffect(() => {
@@ -327,11 +339,26 @@ export default function Player() {
               ref={videoRef}
               src={src || undefined}
               className="h-full w-full object-contain"
-              onTimeUpdate={() => setCurrent(videoRef.current?.currentTime ?? 0)}
-              onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
+              onTimeUpdate={() => {
+                const el = videoRef.current;
+                setCurrent(el?.currentTime ?? 0);
+                const now = Date.now();
+                if (el && now - lastSaveRef.current > 5000) { lastSaveRef.current = now; saveProgress(); }
+              }}
+              onLoadedMetadata={() => {
+                const el = videoRef.current;
+                if (!el) return;
+                setDuration(el.duration ?? 0);
+                /* resume from saved position (continue watching) */
+                if (video) {
+                  const saved = useStore.getState().playbackProgress[video.id];
+                  if (saved && saved > 3 && el.duration && saved < el.duration - 10) el.currentTime = saved;
+                }
+              }}
               onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
+              onPause={() => { setPlaying(false); saveProgress(); }}
               onEnded={() => {
+                if (video) setPlaybackProgress(video.id, 0); // finished → clear resume point
                 if (nextVideo) startCountdown();
               }}
               onClick={() => { const el = videoRef.current!; el.paused ? el.play() : el.pause(); }}

@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
+import { Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import ThemeSwitcher from './ThemeSwitcher';
 import LayoutSelector from './LayoutSelector';
+import SettingsModal from './SettingsModal';
 
 interface Props {
   onPick: () => void;
@@ -14,6 +16,7 @@ export default function Header({ onPick }: Props) {
   const rootName = useStore((s) => s.rootName);
 
   const [localQ, setLocalQ] = useState(searchQuery);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   /* sync external → local */
@@ -112,6 +115,18 @@ export default function Header({ onPick }: Props) {
 
       {/* theme picker */}
       <ThemeSwitcher />
+
+      {/* settings / backup */}
+      <button
+        onClick={() => setSettingsOpen(true)}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content/80 transition hover:bg-content/10"
+        aria-label="Settings"
+        title="Settings"
+      >
+        <Settings className="h-5 w-5" />
+      </button>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </header>
   );
 }

@@ -129,6 +129,8 @@ export const useStore = create()(persist((set, get) => ({
     /* tags — mediaTags rehydrated by persist */
     mediaTags: {},
     activeFilterTags: [],
+    /* continue watching — rehydrated by persist */
+    playbackProgress: {},
     playbackQueue: [],
     recentVideoIds: [],
     /* legacy */
@@ -368,6 +370,29 @@ export const useStore = create()(persist((set, get) => ({
             : [...s.activeFilterTags, tag],
     })),
     clearFilterTags: () => set({ activeFilterTags: [] }),
+    /* ── continue watching + backup/restore ── */
+    setPlaybackProgress: (mediaId, seconds) => set((s) => {
+        const pp = { ...s.playbackProgress };
+        /* clear when finished / barely started, otherwise store whole seconds */
+        if (!Number.isFinite(seconds) || seconds < 3)
+            delete pp[mediaId];
+        else
+            pp[mediaId] = Math.floor(seconds);
+        return { playbackProgress: pp };
+    }),
+    applyImportedData: (data) => {
+        set({
+            favorites: data.favorites,
+            virtualPlaylists: data.virtualPlaylists,
+            mediaTags: data.mediaTags,
+            playbackProgress: data.playbackProgress,
+            /* leave any active filter/collection view — reset so nothing looks stale */
+            collection: { type: 'all' },
+            activeFilterTags: [],
+        });
+        if (data.currentTheme)
+            get().setTheme(data.currentTheme);
+    },
     setPlaybackQueue: (ids) => {
         const cur = get().playbackQueue;
         if (cur.length === ids.length && cur.every((x, i) => x === ids[i]))
@@ -399,10 +424,11 @@ export const useStore = create()(persist((set, get) => ({
     name: 'localtube:collections',
     storage: createJSONStorage(() => localStorage),
     version: 1,
-    /* Persist ONLY the virtual collections + tags — never the live library/handles. */
+    /* Persist ONLY user customizations — never the live library/handles. */
     partialize: (s) => ({
         favorites: s.favorites,
         virtualPlaylists: s.virtualPlaylists,
         mediaTags: s.mediaTags,
+        playbackProgress: s.playbackProgress,
     }),
 }));

@@ -27,6 +27,15 @@ export type CollectionFilter =
   | { type: 'favorites' }
   | { type: 'playlist'; playlistId: string };
 
+/** Restorable user data (see utils/backupUtils for export/import). */
+export interface ImportedUserData {
+  favorites: string[];
+  virtualPlaylists: VirtualPlaylist[];
+  mediaTags: Record<string, string[]>;
+  currentTheme?: ThemeId;
+  playbackProgress: Record<string, number>;
+}
+
 const newId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
 
@@ -263,6 +272,9 @@ interface StoreState {
   mediaTags: Record<string, string[]>;  // mediaId → tags
   activeFilterTags: string[];
 
+  /* continue watching (persisted): mediaId → seconds */
+  playbackProgress: Record<string, number>;
+
   /*
    * Ordered list of video ids that represent the CURRENT filtered view.
    * App.tsx keeps this in sync with its `visible` list so the player can do
@@ -324,6 +336,10 @@ interface StoreState {
   toggleFilterTag: (tag: string) => void;
   clearFilterTags: () => void;
 
+  /* continue watching + backup/restore */
+  setPlaybackProgress: (mediaId: string, seconds: number) => void;
+  applyImportedData: (data: ImportedUserData) => void;
+
   /* queue / recent */
   setPlaybackQueue: (ids: string[]) => void;
   getNextVideoId: () => string | null;
@@ -372,6 +388,9 @@ export const useStore = create<StoreState>()(
   /* tags — mediaTags rehydrated by persist */
   mediaTags: {},
   activeFilterTags: [],
+
+  /* continue watching — rehydrated by persist */
+  playbackProgress: {},
 
   playbackQueue: [],
   recentVideoIds: [],
@@ -649,6 +668,29 @@ export const useStore = create<StoreState>()(
 
   clearFilterTags: () => set({ activeFilterTags: [] }),
 
+  /* ── continue watching + backup/restore ── */
+  setPlaybackProgress: (mediaId, seconds) =>
+    set((s) => {
+      const pp = { ...s.playbackProgress };
+      /* clear when finished / barely started, otherwise store whole seconds */
+      if (!Number.isFinite(seconds) || seconds < 3) delete pp[mediaId];
+      else pp[mediaId] = Math.floor(seconds);
+      return { playbackProgress: pp };
+    }),
+
+  applyImportedData: (data) => {
+    set({
+      favorites: data.favorites,
+      virtualPlaylists: data.virtualPlaylists,
+      mediaTags: data.mediaTags,
+      playbackProgress: data.playbackProgress,
+      /* leave any active filter/collection view — reset so nothing looks stale */
+      collection: { type: 'all' },
+      activeFilterTags: [],
+    });
+    if (data.currentTheme) get().setTheme(data.currentTheme);
+  },
+
   setPlaybackQueue: (ids) => {
     const cur = get().playbackQueue;
     if (cur.length === ids.length && cur.every((x, i) => x === ids[i])) return;
@@ -677,11 +719,12 @@ export const useStore = create<StoreState>()(
       name: 'localtube:collections',
       storage: createJSONStorage(() => localStorage),
       version: 1,
-      /* Persist ONLY the virtual collections + tags — never the live library/handles. */
+      /* Persist ONLY user customizations — never the live library/handles. */
       partialize: (s) => ({
         favorites: s.favorites,
         virtualPlaylists: s.virtualPlaylists,
         mediaTags: s.mediaTags,
+        playbackProgress: s.playbackProgress,
       }),
     },
   ),
