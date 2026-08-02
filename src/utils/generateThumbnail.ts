@@ -1,6 +1,9 @@
 export interface ThumbResult {
   dataUrl: string;
   duration: number;
+  /** Source video pixel dimensions — used for aspect-ratio & resolution badges. */
+  width: number;
+  height: number;
 }
 
 interface Options {
@@ -42,6 +45,8 @@ export async function generateThumbnail(
     return {
       dataUrl: canvas.toDataURL('image/jpeg', quality),
       duration: video.duration,
+      width: srcW,
+      height: srcH,
     };
   } finally {
     URL.revokeObjectURL(url);

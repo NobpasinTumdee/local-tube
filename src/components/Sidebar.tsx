@@ -179,19 +179,23 @@ function NavItem({
   return (
     <button
       onClick={onClick}
-      className={`group relative mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 ${
+      className={`group relative mb-0.5 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 ${
         active
-          ? 'bg-content/[0.08] font-medium text-content shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-          : 'text-content/65 hover:bg-content/[0.04] hover:text-content'
+          ? 'bg-primary/[0.12] font-semibold text-content'
+          : 'font-medium text-content/65 hover:bg-content/[0.05] hover:text-content'
       }`}
     >
       {active && <ActiveBar />}
-      <span className={`shrink-0 transition-transform duration-200 ${active ? 'text-primary' : 'group-hover:scale-110'}`}>
+      <span className={`shrink-0 transition-transform duration-200 ${active ? 'text-primary' : 'text-content/60 group-hover:scale-110 group-hover:text-content'}`}>
         {icon}
       </span>
       <span className="flex-1 truncate text-left">{label}</span>
       {count != null && (
-        <span className="text-[11px] tabular-nums text-content/30">{count}</span>
+        <span className={`rounded-full px-1.5 text-[11px] font-semibold tabular-nums transition-colors ${
+          active ? 'bg-primary/20 text-primary' : 'text-content/30 group-hover:text-content/50'
+        }`}>
+          {count}
+        </span>
       )}
     </button>
   );
@@ -247,10 +251,10 @@ function TreeNode({ node, currentFolderPath, onNavigate, depth }: TreeNodeProps)
   return (
     <div>
       <div
-        className={`group relative mb-0.5 flex w-full items-center rounded-lg text-sm transition-all duration-200 ${
+        className={`group relative mb-0.5 flex w-full items-center rounded-xl text-sm transition-all duration-200 ${
           isActive
-            ? 'bg-content/[0.08] font-medium text-content shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-            : 'text-content/60 hover:bg-content/[0.04] hover:text-content/95'
+            ? 'bg-primary/[0.12] font-semibold text-content'
+            : 'font-medium text-content/60 hover:bg-content/[0.05] hover:text-content/95'
         }`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
       >

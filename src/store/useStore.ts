@@ -4,6 +4,9 @@ import type { MediaEntry, ScanResult, FolderNode } from '../utils/directoryScann
 export interface VideoMeta {
   thumbnailUrl?: string;
   duration?: number;
+  /** Source pixel dimensions (video frame or image), when known. */
+  width?: number;
+  height?: number;
 }
 
 /* ─────────────────────────────────────────────────────────────

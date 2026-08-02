@@ -18,6 +18,18 @@ export const formatSize = (b: number) => {
   return `${n.toFixed(n < 10 && i ? 1 : 0)} ${units[i]}`;
 };
 
+/** Human resolution badge from pixel height, e.g. 1080 → "1080p", 2160 → "4K". */
+export const formatResolution = (width?: number, height?: number) => {
+  if (!width || !height) return '';
+  const shortSide = Math.min(width, height); // robust for vertical video
+  if (shortSide >= 2160) return '4K';
+  if (shortSide >= 1440) return '1440p';
+  if (shortSide >= 1080) return '1080p';
+  if (shortSide >= 720) return 'HD';
+  if (shortSide >= 480) return '480p';
+  return `${shortSide}p`;
+};
+
 export const formatRelative = (ts: number) => {
   const s = Math.max(0, (Date.now() - ts) / 1000);
   const tiers: Array<[number, number, string]> = [

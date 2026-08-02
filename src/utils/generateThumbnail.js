@@ -24,6 +24,8 @@ export async function generateThumbnail(file, { seekTime = 1.0, quality = 0.72, 
         return {
             dataUrl: canvas.toDataURL('image/jpeg', quality),
             duration: video.duration,
+            width: srcW,
+            height: srcH,
         };
     }
     finally {
