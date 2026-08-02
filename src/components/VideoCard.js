@@ -1,15 +1,18 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Image as ImageIcon, PlaySquare, Volume2, VolumeX } from 'lucide-react';
+import { Image as ImageIcon, PlaySquare, Volume2, VolumeX, Plus } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
+import { DND_VIDEO_ID } from '../utils/layoutGrid';
 const HOVER_DELAY_MS = 500;
 export default function MediaCard({ video }) {
     const meta = useStore((s) => s.videoMeta[video.id]);
     const setVideoMeta = useStore((s) => s.setVideoMeta);
     const playVideo = useStore((s) => s.playVideo);
     const viewImage = useStore((s) => s.viewImage);
+    const layoutMode = useStore((s) => s.layoutMode);
+    const addToLayout = useStore((s) => s.addToLayout);
     const cardRef = useRef(null);
     const [requested, setRequested] = useState(false);
     const [failed, setFailed] = useState(false);
@@ -104,14 +107,26 @@ export default function MediaCard({ video }) {
     };
     const thumb = meta?.thumbnailUrl;
     const dur = meta?.duration;
+    /* In layout mode a click drops the video into the next free slot instead
+       of opening the full player. Images always open the viewer. */
+    const layoutTarget = layoutMode && !isImage;
     function handleClick() {
         stopPreview();
         if (isImage)
             viewImage(video.id);
+        else if (layoutTarget)
+            addToLayout(video.id);
         else
             playVideo(video.id);
     }
-    return (_jsxs("div", { ref: cardRef, className: "group cursor-pointer", onClick: handleClick, onMouseEnter: onMouseEnter, onMouseLeave: onMouseLeave, children: [_jsxs("div", { className: "relative aspect-video overflow-hidden rounded-xl bg-content/5", children: [thumb ? (_jsx("img", { src: thumb, alt: video.title, className: `h-full w-full transition-transform duration-300 group-hover:scale-105 ${isImage ? 'object-contain' : 'object-cover'} ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: failed ? (
+    return (_jsxs("div", { ref: cardRef, className: "group cursor-pointer", onClick: handleClick, onMouseEnter: onMouseEnter, onMouseLeave: onMouseLeave, 
+        /* Videos are draggable onto a specific grid slot while in layout mode */
+        draggable: layoutTarget, onDragStart: layoutTarget
+            ? (e) => {
+                e.dataTransfer.setData(DND_VIDEO_ID, video.id);
+                e.dataTransfer.effectAllowed = 'copy';
+            }
+            : undefined, children: [_jsxs("div", { className: "relative aspect-video overflow-hidden rounded-xl bg-content/5", children: [layoutTarget && (_jsx("div", { className: "pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/0 opacity-0 transition group-hover:bg-primary/20 group-hover:opacity-100", children: _jsxs("span", { className: "flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-lg", children: [_jsx(Plus, { className: "h-3.5 w-3.5" }), " Add to layout"] }) })), thumb ? (_jsx("img", { src: thumb, alt: video.title, className: `h-full w-full transition-transform duration-300 group-hover:scale-105 ${isImage ? 'object-contain' : 'object-cover'} ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: failed ? (
                         /* failed placeholder */
                         _jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 })) : (_jsx("div", { className: "h-5 w-5 animate-spin rounded-full border-2 border-content/10 border-t-content/40" })) })), previewUrl && (_jsx("video", { ref: previewVideoRef, src: previewUrl, autoPlay: true, muted: previewMuted, loop: true, playsInline: true, className: "absolute inset-0 h-full w-full bg-black object-cover", onCanPlay: () => {
                             const el = previewVideoRef.current;

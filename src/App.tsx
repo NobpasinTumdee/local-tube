@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import VideoGrid from './components/VideoGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
+import MultiVideoPlayer from './components/MultiVideoPlayer';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -20,6 +21,7 @@ export default function App() {
   const toggleMiniPlayer = useStore((s) => s.toggleMiniPlayer);
   const currentVideoId = useStore((s) => s.currentVideoId);
   const currentImageId = useStore((s) => s.currentImageId);
+  const layoutMode = useStore((s) => s.layoutMode);
 
   async function pickFolder() {
     if (!('showDirectoryPicker' in window)) {
@@ -90,7 +92,8 @@ export default function App() {
 
   if (videos.length === 0) return <Welcome onPick={pickFolder} />;
 
-  const showHome = view === 'home' || playerMode === 'mini';
+  /* Layout mode keeps the library visible so users can fill slots. */
+  const showHome = layoutMode || view === 'home' || playerMode === 'mini';
 
   return (
     <div className="min-h-screen bg-base text-content">
@@ -100,12 +103,18 @@ export default function App() {
         <div className="flex pt-14">
           {sidebarOpen && <Sidebar />}
           <main className="flex-1 overflow-y-auto p-6">
+            {layoutMode && (
+              <div className="mb-6">
+                <MultiVideoPlayer />
+              </div>
+            )}
             <VideoGrid videos={visible} />
           </main>
         </div>
       )}
 
-      {currentVideoId && <Player />}
+      {/* Single-video player is suppressed while the multi-grid is active */}
+      {!layoutMode && currentVideoId && <Player />}
       {currentImageId && view === 'viewing_image' && <ImageViewer />}
     </div>
   );

@@ -109,6 +109,46 @@ export type ViewMode = 'nested' | 'flat';
 
 const RECENT_LIMIT = 12;
 
+/* ─────────────────────────────────────────────────────────────
+ *  MULTI-VIDEO LAYOUT
+ * ─────────────────────────────────────────────────────────────
+ *  A parallel "layout mode" that plays several videos at once in a
+ *  CSS-grid. It coexists with the single-video player (which keeps
+ *  the mini-player, Up Next & autoplay countdown) — enabling layout
+ *  mode simply renders the grid instead.
+ *
+ *  `activeVideos` is a SLOT array (index = grid position, null = empty)
+ *  so drag-and-drop / click-to-fill can target a specific cell.
+ * ───────────────────────────────────────────────────────────── */
+export type LayoutTemplateId = 'single' | 'sideBySide' | 'onePlusTwo' | 'grid2x2' | 'custom';
+
+export interface LayoutTemplateDef {
+  id: LayoutTemplateId;
+  name: string;
+  /** Nominal slot count. 'custom' auto-arranges up to LAYOUT_MAX_SLOTS. */
+  slots: number;
+}
+
+/* Hard cap on simultaneous videos — see the Performance notes below. */
+export const LAYOUT_MAX_SLOTS = 4;
+
+export const LAYOUT_TEMPLATES: LayoutTemplateDef[] = [
+  { id: 'single', name: 'Single', slots: 1 },
+  { id: 'sideBySide', name: 'Side by Side', slots: 2 },
+  { id: 'onePlusTwo', name: '1 + 2', slots: 3 },
+  { id: 'grid2x2', name: '2 × 2', slots: 4 },
+  { id: 'custom', name: 'Auto', slots: LAYOUT_MAX_SLOTS },
+];
+
+const templateById = (id: LayoutTemplateId) =>
+  LAYOUT_TEMPLATES.find((t) => t.id === id) ?? LAYOUT_TEMPLATES[0];
+
+/** Build a fresh slot array for a template (all empty). */
+function emptySlots(id: LayoutTemplateId): (string | null)[] {
+  if (id === 'custom') return [null];
+  return Array.from({ length: templateById(id).slots }, () => null);
+}
+
 interface StoreState {
   /* library */
   rootName: string;
@@ -137,6 +177,11 @@ interface StoreState {
 
   /* theming */
   currentTheme: ThemeId;
+
+  /* multi-video layout */
+  layoutMode: boolean;
+  currentLayoutTemplate: LayoutTemplateId;
+  activeVideos: (string | null)[]; // slot array; null = empty cell
 
   /*
    * Ordered list of video ids that represent the CURRENT filtered view.
@@ -173,6 +218,15 @@ interface StoreState {
   /* theming */
   setTheme: (id: ThemeId) => void;
 
+  /* multi-video layout actions */
+  setLayoutMode: (on: boolean) => void;
+  toggleLayoutMode: () => void;
+  setLayoutTemplate: (id: LayoutTemplateId) => void;
+  addToLayout: (videoId: string, slot?: number) => void;
+  removeFromLayout: (slot: number) => void;
+  swapSlots: (a: number, b: number) => void;
+  clearLayout: () => void;
+
   /* queue / recent */
   setPlaybackQueue: (ids: string[]) => void;
   getNextVideoId: () => string | null;
@@ -204,6 +258,10 @@ export const useStore = create<StoreState>((set, get) => ({
   videoMeta: {},
 
   currentTheme: getInitialTheme(),
+
+  layoutMode: false,
+  currentLayoutTemplate: 'grid2x2',
+  activeVideos: emptySlots('grid2x2'),
 
   playbackQueue: [],
   recentVideoIds: [],
@@ -289,6 +347,83 @@ export const useStore = create<StoreState>((set, get) => ({
     applyTheme(id);
     set({ currentTheme: id });
   },
+
+  /* ── multi-video layout ── */
+  setLayoutMode: (on) =>
+    set((s) => {
+      if (!on) return { layoutMode: false };
+      /* Smooth handoff: seed slot 0 with the single video that was playing */
+      const slots: (string | null)[] = [...s.activeVideos];
+      let anyFilled = false;
+      for (const x of slots) if (x != null) { anyFilled = true; break; }
+      if (s.currentVideoId && !anyFilled) slots[0] = s.currentVideoId;
+      return { layoutMode: true, activeVideos: slots };
+    }),
+
+  toggleLayoutMode: () => get().setLayoutMode(!get().layoutMode),
+
+  setLayoutTemplate: (id) =>
+    set((s) => {
+      const tpl = templateById(id);
+      let slots: (string | null)[];
+      if (id === 'custom') {
+        /* keep what's there (compacted to real entries), capped at MAX */
+        slots = s.activeVideos.filter((x) => x != null).slice(0, LAYOUT_MAX_SLOTS);
+        if (slots.length === 0) slots = [null];
+      } else {
+        /* resize to the fixed slot count, preserving slot order */
+        slots = Array.from({ length: tpl.slots }, (_, i) => s.activeVideos[i] ?? null);
+      }
+      return { currentLayoutTemplate: id, activeVideos: slots, layoutMode: true };
+    }),
+
+  addToLayout: (videoId, slot) =>
+    set((s) => {
+      const slots = [...s.activeVideos];
+      if (slot != null) {
+        if (slot < 0 || slot >= LAYOUT_MAX_SLOTS) return {};
+        while (slots.length <= slot) slots.push(null); // grow for 'custom'
+        slots[slot] = videoId;
+        return { activeVideos: slots, layoutMode: true };
+      }
+      /* no target slot → fill the first empty cell */
+      const empty = slots.indexOf(null);
+      if (empty >= 0) {
+        slots[empty] = videoId;
+        return { activeVideos: slots, layoutMode: true };
+      }
+      /* full: 'custom' grows, fixed templates replace the last slot */
+      if (s.currentLayoutTemplate === 'custom' && slots.length < LAYOUT_MAX_SLOTS) {
+        slots.push(videoId);
+      } else {
+        slots[slots.length - 1] = videoId;
+      }
+      return { activeVideos: slots, layoutMode: true };
+    }),
+
+  removeFromLayout: (slot) =>
+    set((s) => {
+      const slots = [...s.activeVideos];
+      if (slot < 0 || slot >= slots.length) return {};
+      if (s.currentLayoutTemplate === 'custom') {
+        slots.splice(slot, 1);
+        if (slots.length === 0) slots.push(null);
+      } else {
+        slots[slot] = null;
+      }
+      return { activeVideos: slots };
+    }),
+
+  swapSlots: (a, b) =>
+    set((s) => {
+      const slots = [...s.activeVideos];
+      if (a < 0 || b < 0 || a >= slots.length || b >= slots.length || a === b) return {};
+      [slots[a], slots[b]] = [slots[b], slots[a]];
+      return { activeVideos: slots };
+    }),
+
+  clearLayout: () =>
+    set((s) => ({ activeVideos: emptySlots(s.currentLayoutTemplate) })),
 
   setPlaybackQueue: (ids) => {
     const cur = get().playbackQueue;

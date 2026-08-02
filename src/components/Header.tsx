@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import ThemeSwitcher from './ThemeSwitcher';
+import LayoutSelector from './LayoutSelector';
 
 interface Props {
   onPick: () => void;
@@ -105,6 +106,9 @@ export default function Header({ onPick }: Props) {
         </svg>
         <span className="max-w-[120px] truncate">{rootName || 'Folder'}</span>
       </button>
+
+      {/* multi-video layout */}
+      <LayoutSelector />
 
       {/* theme picker */}
       <ThemeSwitcher />

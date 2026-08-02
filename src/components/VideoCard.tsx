@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Image as ImageIcon, PlaySquare, Volume2, VolumeX } from 'lucide-react';
+import { Image as ImageIcon, PlaySquare, Volume2, VolumeX, Plus } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
+import { DND_VIDEO_ID } from '../utils/layoutGrid';
 import type { MediaEntry } from '../utils/directoryScanner';
 
 interface Props {
@@ -16,6 +17,8 @@ export default function MediaCard({ video }: Props) {
   const setVideoMeta = useStore((s) => s.setVideoMeta);
   const playVideo = useStore((s) => s.playVideo);
   const viewImage = useStore((s) => s.viewImage);
+  const layoutMode = useStore((s) => s.layoutMode);
+  const addToLayout = useStore((s) => s.addToLayout);
   const cardRef = useRef<HTMLDivElement>(null);
   const [requested, setRequested] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -109,9 +112,14 @@ export default function MediaCard({ video }: Props) {
   const thumb = meta?.thumbnailUrl;
   const dur = meta?.duration;
 
+  /* In layout mode a click drops the video into the next free slot instead
+     of opening the full player. Images always open the viewer. */
+  const layoutTarget = layoutMode && !isImage;
+
   function handleClick() {
     stopPreview();
     if (isImage) viewImage(video.id);
+    else if (layoutTarget) addToLayout(video.id);
     else playVideo(video.id);
   }
 
@@ -122,9 +130,27 @@ export default function MediaCard({ video }: Props) {
       onClick={handleClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      /* Videos are draggable onto a specific grid slot while in layout mode */
+      draggable={layoutTarget}
+      onDragStart={
+        layoutTarget
+          ? (e) => {
+              e.dataTransfer.setData(DND_VIDEO_ID, video.id);
+              e.dataTransfer.effectAllowed = 'copy';
+            }
+          : undefined
+      }
     >
       {/* thumbnail */}
       <div className="relative aspect-video overflow-hidden rounded-xl bg-content/5">
+        {/* layout-mode affordance */}
+        {layoutTarget && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-primary/0 opacity-0 transition group-hover:bg-primary/20 group-hover:opacity-100">
+            <span className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-lg">
+              <Plus className="h-3.5 w-3.5" /> Add to layout
+            </span>
+          </div>
+        )}
         {thumb ? (
           <img
             src={thumb}
