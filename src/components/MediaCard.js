@@ -14,6 +14,7 @@ export default function MediaCard({ video }) {
     const viewImage = useStore((s) => s.viewImage);
     const layoutMode = useStore((s) => s.layoutMode);
     const addToLayout = useStore((s) => s.addToLayout);
+    const cardAspectRatio = useStore((s) => s.cardAspectRatio);
     /* favorites & virtual playlists */
     const isFav = useStore((s) => s.favorites.includes(video.id));
     const playlists = useStore((s) => s.virtualPlaylists);
@@ -219,11 +220,11 @@ export default function MediaCard({ video }) {
     const onMouseLeave = () => stopPreview();
     const thumb = meta?.thumbnailUrl;
     const dur = meta?.duration;
-    /* ── Aspect ratio: detect vertical ("Shorts") vs standard ── */
+    /* ── Uniform aspect ratio from display preference (media fills via object-cover) ── */
     const w = meta?.width ?? imgDims?.w;
     const h = meta?.height ?? imgDims?.h;
-    const isVertical = !!w && !!h && h > w;
     const resolution = formatResolution(w, h);
+    const aspectClass = cardAspectRatio === '9/16' ? 'aspect-[9/16]' : cardAspectRatio === '1/1' ? 'aspect-square' : 'aspect-video';
     /* In layout mode a click drops the item (video OR image) into a slot. */
     const layoutTarget = layoutMode;
     function handleClick() {
@@ -244,13 +245,13 @@ export default function MediaCard({ video }) {
                 e.dataTransfer.setData(DND_MEDIA_ID, video.id);
                 e.dataTransfer.effectAllowed = 'copy';
             }
-            : undefined, children: [_jsxs("div", { className: "relative overflow-hidden rounded-2xl bg-content/[0.04] shadow-lg shadow-black/20 ring-1 ring-content/[0.06] transition-all duration-300 ease-out will-change-transform group-hover:-translate-y-1 group-hover:scale-[1.03] group-hover:shadow-2xl group-hover:shadow-black/40 group-hover:ring-primary/30", style: { aspectRatio: isVertical ? '9 / 16' : '16 / 9' }, children: [thumb ? (_jsx("img", { src: thumb, alt: video.title, onLoad: (e) => {
+            : undefined, children: [_jsxs("div", { className: `relative overflow-hidden rounded-2xl bg-content/[0.04] shadow-lg shadow-black/20 ring-1 ring-content/[0.06] transition-all duration-300 ease-out will-change-transform group-hover:-translate-y-1 group-hover:scale-[1.03] group-hover:shadow-2xl group-hover:shadow-black/40 group-hover:ring-primary/30 ${aspectClass}`, children: [thumb ? (_jsx("img", { src: thumb, alt: video.title, onLoad: (e) => {
                             if (isImage && !imgDims) {
                                 const t = e.currentTarget;
                                 if (t.naturalWidth)
                                     setImgDims({ w: t.naturalWidth, h: t.naturalHeight });
                             }
-                        }, className: `h-full w-full transition-transform duration-500 ${isVertical || isImage ? 'object-contain' : 'object-cover'} ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: failed ? (_jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 })) : (_jsx("div", { className: "h-6 w-6 animate-spin rounded-full border-2 border-content/10 border-t-content/40" })) })), previewUrl && (_jsx("video", { ref: previewVideoRef, src: previewUrl, autoPlay: true, muted: previewMuted, loop: true, playsInline: true, className: `absolute inset-0 h-full w-full bg-black ${isVertical ? 'object-contain' : 'object-cover'}`, onCanPlay: () => {
+                        }, className: `h-full w-full object-cover transition-transform duration-500 ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: failed ? (_jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 })) : (_jsx("div", { className: "h-6 w-6 animate-spin rounded-full border-2 border-content/10 border-t-content/40" })) })), previewUrl && (_jsx("video", { ref: previewVideoRef, src: previewUrl, autoPlay: true, muted: previewMuted, loop: true, playsInline: true, className: "absolute inset-0 h-full w-full bg-black object-cover", onCanPlay: () => {
                             const el = previewVideoRef.current;
                             if (el)
                                 el.play().catch(() => { });

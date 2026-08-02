@@ -41,7 +41,7 @@ export default function FilterBar() {
   const activeCount = activeFilterTags.length;
 
   return (
-    <div className="mb-6 flex items-center gap-3 overflow-x-auto pb-1 scrollbar-thin">
+    <div className="flex items-center gap-3 overflow-x-auto pb-1 scrollbar-thin">
       {/* ── Media-type segment ── */}
       <div className="flex shrink-0 items-center gap-1 rounded-xl border border-content/[0.06] bg-content/[0.03] p-1">
         {typeFilters.map((f) => {

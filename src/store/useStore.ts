@@ -151,6 +151,10 @@ export type View = 'home' | 'playing' | 'viewing_image';
 export type HomeFilter = 'all' | 'videos' | 'images';
 export type ViewMode = 'nested' | 'flat';
 
+/* Display preferences for the uniform media grid. */
+export type CardAspectRatio = '16/9' | '9/16' | '1/1';
+export type GridColumns = 'auto' | 2 | 3 | 4 | 5 | 6;
+
 const RECENT_LIMIT = 12;
 
 /* ─────────────────────────────────────────────────────────────
@@ -242,6 +246,10 @@ interface StoreState {
   homeFilter: HomeFilter;
   viewMode: ViewMode;
 
+  /* display preferences (persisted) */
+  cardAspectRatio: CardAspectRatio;
+  gridColumns: GridColumns;
+
   /* video player */
   currentVideoId: string | null;
   playerMode: PlayerMode;
@@ -293,6 +301,8 @@ interface StoreState {
   setSidebarOpen: (open: boolean) => void;
   setHomeFilter: (f: HomeFilter) => void;
   setViewMode: (m: ViewMode) => void;
+  setCardAspectRatio: (r: CardAspectRatio) => void;
+  setGridColumns: (c: GridColumns) => void;
 
   /* video player actions */
   playVideo: (id: string) => void;
@@ -364,6 +374,10 @@ export const useStore = create<StoreState>()(
   homeFilter: 'all',
   viewMode: 'nested',
 
+  /* display preferences — rehydrated by persist */
+  cardAspectRatio: '16/9',
+  gridColumns: 'auto',
+
   currentVideoId: null,
   playerMode: 'none',
   theaterMode: false,
@@ -433,6 +447,8 @@ export const useStore = create<StoreState>()(
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHomeFilter: (f) => set({ homeFilter: f }),
   setViewMode: (m) => set({ viewMode: m }),
+  setCardAspectRatio: (r) => set({ cardAspectRatio: r }),
+  setGridColumns: (c) => set({ gridColumns: c }),
 
   playVideo: (id) =>
     set((s) => ({
@@ -725,6 +741,8 @@ export const useStore = create<StoreState>()(
         virtualPlaylists: s.virtualPlaylists,
         mediaTags: s.mediaTags,
         playbackProgress: s.playbackProgress,
+        cardAspectRatio: s.cardAspectRatio,
+        gridColumns: s.gridColumns,
       }),
     },
   ),

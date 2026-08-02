@@ -18,7 +18,7 @@ const entryDelay = (i: number) => Math.min(i * 0.03, 0.4);
 const matchesFilter = (v: MediaEntry, f: HomeFilter) =>
   f === 'all' || (f === 'videos' && v.mediaType === 'video') || (f === 'images' && v.mediaType === 'image');
 
-export default function VideoGrid({ videos }: Props) {
+export default function MediaGrid({ videos }: Props) {
   const currentFolderPath = useStore((s) => s.currentFolderPath);
   const directoryTree = useStore((s) => s.directoryTree);
   const setCurrentFolder = useStore((s) => s.setCurrentFolder);
@@ -29,6 +29,14 @@ export default function VideoGrid({ videos }: Props) {
   const searchQuery = useStore((s) => s.searchQuery);
   const collection = useStore((s) => s.collection);
   const virtualPlaylists = useStore((s) => s.virtualPlaylists);
+  const gridColumns = useStore((s) => s.gridColumns);
+
+  /* Column control: responsive Tailwind for 'auto', explicit inline grid otherwise. */
+  const autoCols = gridColumns === 'auto';
+  const gridColsClass = autoCols ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' : '';
+  const gridStyle: React.CSSProperties | undefined = autoCols
+    ? undefined
+    : { gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` };
 
   /* ── Virtual collection view (Favorites / a Playlist) ── */
   if (collection.type !== 'all') {
@@ -63,7 +71,7 @@ export default function VideoGrid({ videos }: Props) {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 items-start gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className={`grid items-start gap-x-5 gap-y-9 ${gridColsClass}`} style={gridStyle}>
             {videos.map((v, i) => (
               <motion.div
                 layout
@@ -175,7 +183,7 @@ export default function VideoGrid({ videos }: Props) {
                   {videos.length} file{videos.length !== 1 ? 's' : ''} · including subfolders
                 </p>
               )}
-              <div className="grid grid-cols-1 items-start gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className={`grid items-start gap-x-5 gap-y-9 ${gridColsClass}`} style={gridStyle}>
                 {videos.map((v, i) => (
                   <motion.div
                     layout

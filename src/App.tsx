@@ -5,11 +5,12 @@ import type { MediaEntry } from './utils/directoryScanner';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import VideoGrid from './components/VideoGrid';
+import MediaGrid from './components/MediaGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
 import MediaViewer from './components/MediaViewer';
 import FilterBar from './components/FilterBar';
+import GridSettingsBar from './components/GridSettingsBar';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -139,8 +140,13 @@ export default function App() {
                 <MediaViewer />
               </div>
             )}
-            <FilterBar />
-            <VideoGrid videos={visible} />
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <FilterBar />
+              </div>
+              <GridSettingsBar />
+            </div>
+            <MediaGrid videos={visible} />
           </main>
         </div>
       )}

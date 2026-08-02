@@ -111,6 +111,9 @@ export const useStore = create()(persist((set, get) => ({
     view: 'home',
     homeFilter: 'all',
     viewMode: 'nested',
+    /* display preferences — rehydrated by persist */
+    cardAspectRatio: '16/9',
+    gridColumns: 'auto',
     currentVideoId: null,
     playerMode: 'none',
     theaterMode: false,
@@ -168,6 +171,8 @@ export const useStore = create()(persist((set, get) => ({
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
     setHomeFilter: (f) => set({ homeFilter: f }),
     setViewMode: (m) => set({ viewMode: m }),
+    setCardAspectRatio: (r) => set({ cardAspectRatio: r }),
+    setGridColumns: (c) => set({ gridColumns: c }),
     playVideo: (id) => set((s) => ({
         currentVideoId: id,
         playerMode: 'full',
@@ -430,5 +435,7 @@ export const useStore = create()(persist((set, get) => ({
         virtualPlaylists: s.virtualPlaylists,
         mediaTags: s.mediaTags,
         playbackProgress: s.playbackProgress,
+        cardAspectRatio: s.cardAspectRatio,
+        gridColumns: s.gridColumns,
     }),
 }));

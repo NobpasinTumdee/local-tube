@@ -5,11 +5,12 @@ import { scanDirectory, getAllFilesRecursively } from './utils/directoryScanner'
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import VideoGrid from './components/VideoGrid';
+import MediaGrid from './components/MediaGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
 import MediaViewer from './components/MediaViewer';
 import FilterBar from './components/FilterBar';
+import GridSettingsBar from './components/GridSettingsBar';
 export default function App() {
     const videos = useStore((s) => s.videos);
     const currentFolderPath = useStore((s) => s.currentFolderPath);
@@ -122,5 +123,5 @@ export default function App() {
         return _jsx(Welcome, { onPick: pickFolder });
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsx(FilterBar, {}), _jsx(VideoGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
 }
