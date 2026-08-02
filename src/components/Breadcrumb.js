@@ -18,6 +18,6 @@ export default function Breadcrumb() {
         return null; // at root — nothing to show
     return (_jsx("nav", { className: "mb-5 flex flex-wrap items-center gap-1 text-sm", "aria-label": "Breadcrumb", children: segments.map((seg, i) => {
             const isLast = i === segments.length - 1;
-            return (_jsxs("span", { className: "flex items-center gap-1", children: [i > 0 && (_jsx("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-3.5 w-3.5 text-white/20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", children: _jsx("polyline", { points: "9 18 15 12 9 6" }) })), isLast ? (_jsx("span", { className: "font-semibold text-white/80", children: seg.label })) : (_jsx("button", { onClick: () => setCurrentFolder(seg.path), className: "text-white/40 transition hover:text-white/80", children: seg.label }))] }, seg.path));
+            return (_jsxs("span", { className: "flex items-center gap-1", children: [i > 0 && (_jsx("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-3.5 w-3.5 text-content/20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", children: _jsx("polyline", { points: "9 18 15 12 9 6" }) })), isLast ? (_jsx("span", { className: "font-semibold text-content/80", children: seg.label })) : (_jsx("button", { onClick: () => setCurrentFolder(seg.path), className: "text-content/40 transition hover:text-content/80", children: seg.label }))] }, seg.path));
         }) }));
 }

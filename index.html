@@ -16,8 +16,17 @@
   <title>Local Tube</title>
 </head>
 
-<body class="bg-[#0f0f0f]">
+<body class="theme-dark">
   <div id="root"></div>
+  <!-- Seed the persisted theme before the app module loads to avoid a flash -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('localtube:theme');
+        if (t) document.body.className = 'theme-' + t;
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

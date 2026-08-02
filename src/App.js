@@ -93,5 +93,5 @@ export default function App() {
     if (videos.length === 0)
         return _jsx(Welcome, { onPick: pickFolder });
     const showHome = view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-[#0f0f0f] text-white", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsx("main", { className: "flex-1 overflow-y-auto p-6", children: _jsx(VideoGrid, { videos: visible }) })] })), currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsx("main", { className: "flex-1 overflow-y-auto p-6", children: _jsx(VideoGrid, { videos: visible }) })] })), currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
 }

@@ -124,7 +124,7 @@ export default function MediaCard({ video }: Props) {
       onMouseLeave={onMouseLeave}
     >
       {/* thumbnail */}
-      <div className="relative aspect-video overflow-hidden rounded-xl bg-white/5">
+      <div className="relative aspect-video overflow-hidden rounded-xl bg-content/5">
         {thumb ? (
           <img
             src={thumb}
@@ -138,9 +138,9 @@ export default function MediaCard({ video }: Props) {
           <div className="flex h-full w-full items-center justify-center">
             {failed ? (
               /* failed placeholder */
-              <PlaySquare className="h-10 w-10 text-white/10" strokeWidth={1.5} />
+              <PlaySquare className="h-10 w-10 text-content/10" strokeWidth={1.5} />
             ) : (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-white/40" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-content/10 border-t-content/40" />
             )}
           </div>
         )}
@@ -169,7 +169,7 @@ export default function MediaCard({ video }: Props) {
               e.stopPropagation();
               setPreviewMuted((m) => !m);
             }}
-            className="absolute bottom-1.5 left-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white/90 backdrop-blur-sm transition hover:bg-black/90"
+            className="absolute bottom-1.5 left-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-content/90 backdrop-blur-sm transition hover:bg-black/90"
             aria-label={previewMuted ? 'Unmute preview' : 'Mute preview'}
           >
             {previewMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
@@ -178,40 +178,40 @@ export default function MediaCard({ video }: Props) {
 
         {/* ── Video: duration badge (bottom-right) ── */}
         {!isImage && dur != null && dur > 0 && !previewUrl && (
-          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-content">
             {formatDuration(dur)}
           </span>
         )}
 
         {/* ── Image: photo icon badge (top-left) ── */}
         {isImage && (
-          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white/80 backdrop-blur-sm">
+          <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-content/80 backdrop-blur-sm">
             <ImageIcon className="h-3 w-3" />
             IMG
           </span>
         )}
 
         {/* hover ring */}
-        <div className="absolute inset-0 rounded-xl ring-1 ring-white/0 transition group-hover:ring-white/10" />
+        <div className="absolute inset-0 rounded-xl ring-1 ring-content/0 transition group-hover:ring-content/10" />
       </div>
 
       {/* info row */}
       <div className="mt-2.5 flex gap-2.5">
         {/* avatar */}
-        <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold uppercase text-white ${
+        <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold uppercase text-content ${
           isImage
             ? 'bg-gradient-to-br from-emerald-600 to-teal-500'
-            : 'bg-gradient-to-br from-purple-600 to-blue-500'
+            : 'bg-gradient-to-br from-purple-600 to-accent'
         }`}>
           {video.playlist.charAt(0)}
         </div>
 
         <div className="min-w-0">
-          <h3 className="line-clamp-2 text-sm font-medium leading-snug text-white/90 group-hover:text-white">
+          <h3 className="line-clamp-2 text-sm font-medium leading-snug text-content/90 group-hover:text-content">
             {video.title}
           </h3>
-          <p className="mt-0.5 truncate text-xs text-white/40">{video.playlist}</p>
-          <p className="text-xs text-white/40">
+          <p className="mt-0.5 truncate text-xs text-content/40">{video.playlist}</p>
+          <p className="text-xs text-content/40">
             {formatSize(video.size)} • {formatRelative(video.lastModified)}
           </p>
         </div>

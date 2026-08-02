@@ -2,34 +2,130 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ─────────────────────────────────────────────────────────────
+ *  THEME TOKENS
+ * ─────────────────────────────────────────────────────────────
+ *  Every theme is a `body.theme-*` class that sets the same five
+ *  color tokens (as space-separated RGB channels so Tailwind's
+ *  `<alpha-value>` opacity modifiers work) plus an optional font.
+ *
+ *  Tokens:
+ *    --color-bg       page background            → bg-base
+ *    --color-surface  elevated chrome/cards      → bg-surface
+ *    --color-primary  brand / action color       → bg-primary, text-primary
+ *    --color-accent   secondary accent           → text-accent, ring-accent
+ *    --color-text     foreground / content       → text-content (+ overlays)
+ *    --font-app       base font stack
+ *
+ *  `--color-text` doubles as the overlay/border color: utilities like
+ *  `bg-content/5`, `border-content/10`, `hover:bg-content/10` produce a
+ *  light overlay on dark themes and a dark overlay on light themes —
+ *  automatically, because the foreground inverts per theme.
+ * ─────────────────────────────────────────────────────────────
+ */
+
+:root {
+  /* Fallback = Default Dark, so the app is styled before a theme class lands */
+  --color-bg: 15 15 15;
+  --color-surface: 24 24 24;
+  --color-primary: 255 0 0;
+  --color-accent: 59 130 246;
+  --color-text: 255 255 255;
+  --font-app: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* 1 ─ Default Dark (YouTube-like) */
+body.theme-dark {
+  --color-bg: 15 15 15;
+  --color-surface: 24 24 24;
+  --color-primary: 255 0 0;
+  --color-accent: 59 130 246;
+  --color-text: 255 255 255;
+  --font-app: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* 2 ─ OLED Black (pure black, energy saving) */
+body.theme-oled {
+  --color-bg: 0 0 0;
+  --color-surface: 12 12 12;
+  --color-primary: 255 0 0;
+  --color-accent: 59 130 246;
+  --color-text: 245 245 245;
+  --font-app: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* 3 ─ Retro Terminal (black bg, green monospace text) */
+body.theme-terminal {
+  --color-bg: 0 0 0;
+  --color-surface: 8 20 8;
+  --color-primary: 0 255 65;
+  --color-accent: 57 255 20;
+  --color-text: 51 255 102;
+  --font-app: 'JetBrains Mono', 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+}
+
+/* 4 ─ Deep Sea (dark blue bg, teal accents) */
+body.theme-deepsea {
+  --color-bg: 8 20 35;
+  --color-surface: 14 32 54;
+  --color-primary: 20 184 166;
+  --color-accent: 45 212 191;
+  --color-text: 224 242 241;
+  --font-app: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* 5 ─ Cyberpunk (dark purple bg, cyan/magenta contrast) */
+body.theme-cyberpunk {
+  --color-bg: 20 10 35;
+  --color-surface: 33 18 54;
+  --color-primary: 34 211 238;
+  --color-accent: 232 121 249;
+  --color-text: 236 233 255;
+  --font-app: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* 6 ─ Soft Light (warm white/grey daytime) */
+body.theme-light {
+  --color-bg: 250 249 246;
+  --color-surface: 255 255 255;
+  --color-primary: 220 38 38;
+  --color-accent: 37 99 235;
+  --color-text: 24 24 27;
+  --font-app: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Base element styling driven by the tokens ── */
 html, body, #root {
   height: 100%;
-  background: #0f0f0f;
-  color: #fff;
+  background: rgb(var(--color-bg));
+  color: rgb(var(--color-text));
 }
 
 body {
-  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-app);
   -webkit-font-smoothing: antialiased;
+  /* smooth cross-fade when switching themes */
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f3f;
-  border: 3px solid #0f0f0f;
+  background: rgb(var(--color-text) / 0.22);
+  border: 3px solid rgb(var(--color-bg));
   border-radius: 8px;
 }
-::-webkit-scrollbar-thumb:hover { background: #5a5a5a; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--color-text) / 0.38); }
 
 input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; }
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 3px; background: rgba(255,255,255,0.3); border-radius: 2px;
+  height: 3px; background: rgb(var(--color-text) / 0.3); border-radius: 2px;
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 13px; height: 13px; border-radius: 50%;
-  background: #ff0000; margin-top: -5px;
+  background: rgb(var(--color-primary)); margin-top: -5px;
 }
 
 /* Hidden scrollbar utility — used by the premium sidebar */
@@ -37,12 +133,12 @@ input[type="range"]::-webkit-slider-thumb {
 .scrollbar-hidden::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 /* Thin, near-invisible scrollbar — fades in only while scrolling the element */
-.scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgb(var(--color-text) / 0.08) transparent; }
 .scrollbar-thin::-webkit-scrollbar { width: 4px; height: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.06);
+  background: rgb(var(--color-text) / 0.06);
   border: none;
   border-radius: 2px;
 }
-.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgb(var(--color-text) / 0.18); }

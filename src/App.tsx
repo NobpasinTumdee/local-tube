@@ -93,7 +93,7 @@ export default function App() {
   const showHome = view === 'home' || playerMode === 'mini';
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white">
+    <div className="min-h-screen bg-base text-content">
       <Header onPick={pickFolder} />
 
       {showHome && (

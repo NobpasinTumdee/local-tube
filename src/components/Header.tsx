@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
+import ThemeSwitcher from './ThemeSwitcher';
 
 interface Props {
   onPick: () => void;
@@ -29,12 +30,12 @@ export default function Header({ onPick }: Props) {
   }
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-4 border-b border-white/5 bg-[#0f0f0f]/95 px-4 backdrop-blur-md">
+    <header className="fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-4 border-b border-content/5 bg-base/95 px-4 backdrop-blur-md">
       {/* hamburger */}
       <button
         id="sidebar-toggle"
         onClick={toggleSidebar}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content/80 transition hover:bg-content/10"
         aria-label="Toggle sidebar"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -45,10 +46,10 @@ export default function Header({ onPick }: Props) {
       {/* logo — click goes home (video keeps playing in mini-player) */}
       <div className="flex shrink-0 items-center gap-1 select-none cursor-pointer" onClick={() => { useStore.getState().setActivePlaylist(null); useStore.getState().goHome(); }}>
         <svg viewBox="0 0 28 20" className="h-5 w-auto">
-          <rect x="0" y="0" width="28" height="20" rx="4" className="fill-red-600" />
-          <polygon points="11,4 11,16 21,10" className="fill-white" />
+          <rect x="0" y="0" width="28" height="20" rx="4" className="fill-primary" />
+          <polygon points="11,4 11,16 21,10" className="fill-content" />
         </svg>
-        <span className="ml-0.5 text-lg font-bold tracking-tight text-white">
+        <span className="ml-0.5 text-lg font-bold tracking-tight text-content">
           LocalTube
         </span>
       </div>
@@ -63,13 +64,13 @@ export default function Header({ onPick }: Props) {
             value={localQ}
             onChange={(e) => setLocalQ(e.target.value)}
             placeholder="Search videos…"
-            className="h-10 w-full rounded-l-full border border-white/10 bg-[#121212] pl-5 pr-10 text-sm text-white placeholder-white/40 outline-none transition focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30"
+            className="h-10 w-full rounded-l-full border border-content/10 bg-surface pl-5 pr-10 text-sm text-content placeholder-content/40 outline-none transition focus:border-accent/60 focus:ring-1 focus:ring-accent/30"
           />
           {localQ && (
             <button
               type="button"
               onClick={clear}
-              className="absolute right-[3.25rem] top-1/2 -translate-y-1/2 rounded-full p-1 text-white/50 hover:text-white"
+              className="absolute right-[3.25rem] top-1/2 -translate-y-1/2 rounded-full p-1 text-content/50 hover:text-content"
               aria-label="Clear search"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -81,7 +82,7 @@ export default function Header({ onPick }: Props) {
           <button
             type="submit"
             id="search-btn"
-            className="flex h-10 w-16 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-white/5 text-white/70 transition hover:bg-white/10"
+            className="flex h-10 w-16 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-content/10 bg-content/5 text-content/70 transition hover:bg-content/10"
             aria-label="Search"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -96,7 +97,7 @@ export default function Header({ onPick }: Props) {
       <button
         onClick={onPick}
         id="change-folder-btn"
-        className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-white/70 transition hover:bg-white/10 sm:flex"
+        className="hidden shrink-0 items-center gap-1.5 rounded-full border border-content/10 bg-content/5 px-4 py-1.5 text-xs text-content/70 transition hover:bg-content/10 sm:flex"
         title="Change folder"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -104,6 +105,9 @@ export default function Header({ onPick }: Props) {
         </svg>
         <span className="max-w-[120px] truncate">{rootName || 'Folder'}</span>
       </button>
+
+      {/* theme picker */}
+      <ThemeSwitcher />
     </header>
   );
 }
