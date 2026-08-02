@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock, Heart, ListPlus, Check } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
 import { formatDuration, formatRelative, formatResolution } from '../utils/format';
@@ -19,11 +20,61 @@ export default function MediaCard({ video }: Props) {
   const viewImage = useStore((s) => s.viewImage);
   const layoutMode = useStore((s) => s.layoutMode);
   const addToLayout = useStore((s) => s.addToLayout);
+
+  /* favorites & virtual playlists */
+  const isFav = useStore((s) => s.favorites.includes(video.id));
+  const playlists = useStore((s) => s.virtualPlaylists);
+  const toggleFavorite = useStore((s) => s.toggleFavorite);
+  const togglePlaylistItem = useStore((s) => s.togglePlaylistItem);
+  const createPlaylist = useStore((s) => s.createPlaylist);
+  const addToPlaylist = useStore((s) => s.addToPlaylist);
+
   const cardRef = useRef<HTMLDivElement>(null);
   const [requested, setRequested] = useState(false);
   const [failed, setFailed] = useState(false);
   /* local dimension capture for images (videos get theirs from extraction) */
   const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null);
+
+  /* playlist dropdown (rendered via portal so card/shelf overflow can't clip it) */
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [newName, setNewName] = useState('');
+  const plBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node) || plBtnRef.current?.contains(e.target as Node)) return;
+      setMenuOpen(false);
+    };
+    const close = () => setMenuOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  const openPlaylistMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const r = plBtnRef.current?.getBoundingClientRect();
+    if (r) setMenuPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    setMenuOpen((o) => !o);
+  };
+
+  const createAndAdd = () => {
+    const name = newName.trim();
+    if (!name) return;
+    addToPlaylist(createPlaylist(name), video.id);
+    setNewName('');
+  };
 
   const isImage = video.mediaType === 'image';
 
@@ -211,18 +262,96 @@ export default function MediaCard({ video }: Props) {
           </div>
         )}
 
-        {/* ── Preview mute toggle ── */}
-        {previewUrl && (
+        {/* ── Action cluster: preview-mute + favorite + add-to-playlist ── */}
+        <div
+          className={`absolute right-2 top-2 z-30 flex items-center gap-1.5 transition-opacity ${
+            isFav || menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          {previewUrl && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setPreviewMuted((m) => !m); }}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm transition hover:bg-black/90"
+              aria-label={previewMuted ? 'Unmute preview' : 'Mute preview'}
+            >
+              {previewMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+          )}
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setPreviewMuted((m) => !m);
-            }}
-            className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm transition hover:bg-black/90"
-            aria-label={previewMuted ? 'Unmute preview' : 'Mute preview'}
+            onClick={(e) => { e.stopPropagation(); toggleFavorite(video.id); }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full backdrop-blur-sm transition ${
+              isFav ? 'bg-black/60 text-primary' : 'bg-black/50 text-white/90 hover:bg-black/80'
+            }`}
+            aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
+            title={isFav ? 'Unfavorite' : 'Favorite'}
           >
-            {previewMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            <Heart className={`h-4 w-4 ${isFav ? 'fill-current' : ''}`} />
           </button>
+          <button
+            ref={plBtnRef}
+            onClick={openPlaylistMenu}
+            className={`flex h-8 w-8 items-center justify-center rounded-full backdrop-blur-sm transition ${
+              menuOpen ? 'bg-black/80 text-white' : 'bg-black/50 text-white/90 hover:bg-black/80'
+            }`}
+            aria-label="Add to playlist"
+            title="Add to playlist"
+          >
+            <ListPlus className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* ── Playlist dropdown (portal → escapes overflow/transform clipping) ── */}
+        {menuOpen && menuPos && createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[300] w-60 overflow-hidden rounded-xl border border-content/10 bg-surface/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
+            style={{ top: menuPos.top, right: menuPos.right }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-content/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-content/50">
+              Add to playlist
+            </div>
+            <div className="max-h-56 overflow-y-auto py-1 scrollbar-thin">
+              {playlists.length === 0 && (
+                <p className="px-3 py-2 text-xs text-content/40">No playlists yet — create one below.</p>
+              )}
+              {playlists.map((p) => {
+                const has = p.mediaIds.includes(video.id);
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => togglePlaylistItem(p.id, video.id)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-content/80 transition hover:bg-content/10"
+                  >
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                      has ? 'border-primary bg-primary text-white' : 'border-content/30'
+                    }`}>
+                      {has && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{p.title}</span>
+                    <span className="text-[10px] tabular-nums text-content/30">{p.mediaIds.length}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-1 border-t border-content/10 p-2">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createAndAdd(); } }}
+                placeholder="New playlist…"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-content/10 bg-content/5 px-2 text-sm text-content placeholder-content/40 outline-none focus:border-primary/50"
+              />
+              <button
+                onClick={createAndAdd}
+                disabled={!newName.trim()}
+                className="flex h-8 shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+            </div>
+          </div>,
+          document.body,
         )}
 
         {/* ── Metadata rail: hidden by default, slides up over the thumbnail on hover ── */}

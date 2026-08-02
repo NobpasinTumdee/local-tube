@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Folder, List, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Folder, List, Search, Heart, ListMusic } from 'lucide-react';
 import MediaCard from './MediaCard';
 import Breadcrumb from './Breadcrumb';
 import { useStore } from '../store/useStore';
@@ -18,6 +18,17 @@ export default function VideoGrid({ videos }) {
     const allVideos = useStore((s) => s.videos);
     const homeFilter = useStore((s) => s.homeFilter);
     const searchQuery = useStore((s) => s.searchQuery);
+    const collection = useStore((s) => s.collection);
+    const virtualPlaylists = useStore((s) => s.virtualPlaylists);
+    /* ── Virtual collection view (Favorites / a Playlist) ── */
+    if (collection.type !== 'all') {
+        const isFav = collection.type === 'favorites';
+        const playlist = collection.type === 'playlist' ? virtualPlaylists.find((p) => p.id === collection.playlistId) : null;
+        const title = isFav ? 'Favorites' : playlist?.title ?? 'Playlist';
+        return (_jsxs("div", { children: [_jsxs("div", { className: "mb-7 flex items-center gap-3", children: [_jsx("span", { className: "flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 text-primary", children: isFav ? _jsx(Heart, { className: "h-5 w-5 fill-current" }) : _jsx(ListMusic, { className: "h-5 w-5" }) }), _jsxs("div", { children: [_jsx("h1", { className: "text-xl font-bold tracking-tight text-content", children: title }), _jsxs("p", { className: "text-xs font-medium text-content/40", children: [videos.length, " item", videos.length !== 1 ? 's' : ''] })] })] }), videos.length === 0 ? (_jsxs("div", { className: "flex flex-col items-center justify-center gap-3 py-28 text-content/30", children: [isFav ? _jsx(Heart, { className: "h-14 w-14", strokeWidth: 1 }) : _jsx(ListMusic, { className: "h-14 w-14", strokeWidth: 1 }), _jsx("p", { className: "text-lg font-semibold text-content/50", children: isFav ? 'No favorites yet' : 'This playlist is empty' }), _jsx("p", { className: "text-sm", children: isFav
+                                ? 'Hover any video or image and tap the heart to save it here.'
+                                : 'Hover a card and use “+ Playlist” to add items.' })] })) : (_jsx("div", { className: "grid grid-cols-1 items-start gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", children: videos.map((v, i) => (_jsx(motion.div, { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(MediaCard, { video: v }) }, v.id))) }))] }));
+    }
     /* subfolders at the current level (only meaningful in nested mode) */
     const subfolders = viewMode === 'nested' && directoryTree
         ? getChildFolders(directoryTree, currentFolderPath)

@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+const newId = () => (globalThis.crypto?.randomUUID?.() ?? `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
 export const THEMES = [
     {
         id: 'dark',
@@ -96,7 +98,7 @@ export function slotCountFor(id, customCols, customRows) {
 function emptySlots(n) {
     return Array.from({ length: Math.max(1, n) }, () => null);
 }
-export const useStore = create((set, get) => ({
+export const useStore = create()(persist((set, get) => ({
     rootName: '',
     videos: [],
     playlists: [],
@@ -118,11 +120,15 @@ export const useStore = create((set, get) => ({
     activeMedia: emptySlots(slotCountFor('grid2x2', 2, 2)),
     customCols: 2,
     customRows: 2,
+    /* virtual collections — favorites/virtualPlaylists are rehydrated by persist */
+    favorites: [],
+    virtualPlaylists: [],
+    collection: { type: 'all' },
     playbackQueue: [],
     recentVideoIds: [],
     /* legacy */
     activePlaylist: null,
-    setActivePlaylist: (p) => set({ activePlaylist: p, currentFolderPath: p ?? '', searchQuery: '' }),
+    setActivePlaylist: (p) => set({ activePlaylist: p, currentFolderPath: p ?? '', searchQuery: '', collection: { type: 'all' } }),
     setLibrary: (scan) => set({
         rootName: scan.rootName,
         videos: scan.videos,
@@ -140,13 +146,15 @@ export const useStore = create((set, get) => ({
         videoMeta: {},
         playbackQueue: [],
         recentVideoIds: [],
+        collection: { type: 'all' },
+        /* NOTE: favorites & virtualPlaylists intentionally preserved across re-scans */
     }),
     /*
      * Navigating to a folder should NOT reset currentVideoId / playerMode —
      * that lets the mini-player keep playing while the user browses.
      * We also clear the search so the folder view is what the user expects.
      */
-    setCurrentFolder: (path) => set({ currentFolderPath: path, searchQuery: '' }),
+    setCurrentFolder: (path) => set({ currentFolderPath: path, searchQuery: '', collection: { type: 'all' } }),
     setSearchQuery: (q) => set({ searchQuery: q }),
     toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -282,6 +290,50 @@ export const useStore = create((set, get) => ({
             : s.activeMedia;
         return { customCols: c, customRows: r, activeMedia };
     }),
+    /* ── favorites & virtual playlists ── */
+    toggleFavorite: (mediaId) => set((s) => ({
+        favorites: s.favorites.includes(mediaId)
+            ? s.favorites.filter((x) => x !== mediaId)
+            : [mediaId, ...s.favorites],
+    })),
+    createPlaylist: (title) => {
+        const id = newId();
+        const playlist = {
+            id,
+            title: title.trim() || 'New Playlist',
+            createdAt: Date.now(),
+            mediaIds: [],
+        };
+        set((s) => ({ virtualPlaylists: [...s.virtualPlaylists, playlist] }));
+        return id;
+    },
+    deletePlaylist: (id) => set((s) => ({
+        virtualPlaylists: s.virtualPlaylists.filter((p) => p.id !== id),
+        /* if we were viewing it, fall back to the whole library */
+        collection: s.collection.type === 'playlist' && s.collection.playlistId === id
+            ? { type: 'all' }
+            : s.collection,
+    })),
+    renamePlaylist: (id, title) => set((s) => ({
+        virtualPlaylists: s.virtualPlaylists.map((p) => p.id === id ? { ...p, title: title.trim() || p.title } : p),
+    })),
+    addToPlaylist: (playlistId, mediaId) => set((s) => ({
+        virtualPlaylists: s.virtualPlaylists.map((p) => p.id === playlistId && !p.mediaIds.includes(mediaId)
+            ? { ...p, mediaIds: [...p.mediaIds, mediaId] }
+            : p),
+    })),
+    removeFromPlaylist: (playlistId, mediaId) => set((s) => ({
+        virtualPlaylists: s.virtualPlaylists.map((p) => p.id === playlistId ? { ...p, mediaIds: p.mediaIds.filter((x) => x !== mediaId) } : p),
+    })),
+    togglePlaylistItem: (playlistId, mediaId) => set((s) => ({
+        virtualPlaylists: s.virtualPlaylists.map((p) => {
+            if (p.id !== playlistId)
+                return p;
+            const has = p.mediaIds.includes(mediaId);
+            return { ...p, mediaIds: has ? p.mediaIds.filter((x) => x !== mediaId) : [...p.mediaIds, mediaId] };
+        }),
+    })),
+    setCollection: (c) => set({ collection: c, searchQuery: '' }),
     setPlaybackQueue: (ids) => {
         const cur = get().playbackQueue;
         if (cur.length === ids.length && cur.every((x, i) => x === ids[i]))
@@ -309,4 +361,13 @@ export const useStore = create((set, get) => ({
             return playbackQueue[0]; // loop
         return playbackQueue[idx + 1];
     },
+}), {
+    name: 'localtube:collections',
+    storage: createJSONStorage(() => localStorage),
+    version: 1,
+    /* Persist ONLY the virtual collections — never the live library/handles. */
+    partialize: (s) => ({
+        favorites: s.favorites,
+        virtualPlaylists: s.virtualPlaylists,
+    }),
 }));

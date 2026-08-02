@@ -52,38 +52,55 @@ export default function App() {
     }, [currentVideoId, toggleMiniPlayer]);
     const viewMode = useStore((s) => s.viewMode);
     const setPlaybackQueue = useStore((s) => s.setPlaybackQueue);
+    const collection = useStore((s) => s.collection);
+    const favorites = useStore((s) => s.favorites);
+    const virtualPlaylists = useStore((s) => s.virtualPlaylists);
     /*
      * Visible list rules:
+     * - Virtual collection (favorites / playlist): flat across the whole library,
+     *   matched + ordered by the stored mediaId list, still honoring search + type.
      * - Searching: global across all files (both modes)
      * - nested: only direct children (parentPath === currentFolderPath)
      * - flat:   all files recursively under currentFolderPath
      */
     const visible = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
-        const idSet = !q && viewMode === 'flat'
-            ? new Set(getAllFilesRecursively(videos, currentFolderPath))
-            : null;
-        return videos.filter((v) => {
-            if (q) {
-                if (!v.title.toLowerCase().includes(q))
-                    return false;
-            }
-            else if (viewMode === 'flat') {
-                if (!idSet.has(v.id))
-                    return false;
-            }
-            else {
-                // nested: direct children only
-                if (v.parentPath !== currentFolderPath)
-                    return false;
-            }
+        const matchesSearchAndType = (v) => {
+            if (q && !v.title.toLowerCase().includes(q))
+                return false;
             if (homeFilter === 'videos' && v.mediaType !== 'video')
                 return false;
             if (homeFilter === 'images' && v.mediaType !== 'image')
                 return false;
             return true;
+        };
+        /* Virtual collections resolve mediaIds → entries, preserving their order. */
+        if (collection.type !== 'all') {
+            const ids = collection.type === 'favorites'
+                ? favorites
+                : virtualPlaylists.find((p) => p.id === collection.playlistId)?.mediaIds ?? [];
+            const byId = new Map(videos.map((v) => [v.id, v]));
+            return ids
+                .map((id) => byId.get(id))
+                .filter((v) => !!v && matchesSearchAndType(v));
+        }
+        const idSet = !q && viewMode === 'flat'
+            ? new Set(getAllFilesRecursively(videos, currentFolderPath))
+            : null;
+        return videos.filter((v) => {
+            if (q) {
+                return matchesSearchAndType(v); // global search
+            }
+            if (viewMode === 'flat') {
+                if (!idSet.has(v.id))
+                    return false;
+            }
+            else if (v.parentPath !== currentFolderPath) {
+                return false; // nested: direct children only
+            }
+            return matchesSearchAndType(v);
         });
-    }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode]);
+    }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists]);
     /*
      * Keep the player's playback queue aligned with what the user is browsing,
      * so "next video" = files[currentIndex + 1] within the current folder/filter.

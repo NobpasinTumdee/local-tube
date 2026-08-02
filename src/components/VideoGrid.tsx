@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Folder, List, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Folder, List, Search, Heart, ListMusic } from 'lucide-react';
 import MediaCard from './MediaCard';
 import Breadcrumb from './Breadcrumb';
 import { useStore } from '../store/useStore';
@@ -27,6 +27,58 @@ export default function VideoGrid({ videos }: Props) {
   const allVideos = useStore((s) => s.videos);
   const homeFilter = useStore((s) => s.homeFilter);
   const searchQuery = useStore((s) => s.searchQuery);
+  const collection = useStore((s) => s.collection);
+  const virtualPlaylists = useStore((s) => s.virtualPlaylists);
+
+  /* ── Virtual collection view (Favorites / a Playlist) ── */
+  if (collection.type !== 'all') {
+    const isFav = collection.type === 'favorites';
+    const playlist =
+      collection.type === 'playlist' ? virtualPlaylists.find((p) => p.id === collection.playlistId) : null;
+    const title = isFav ? 'Favorites' : playlist?.title ?? 'Playlist';
+    return (
+      <div>
+        <div className="mb-7 flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+            {isFav ? <Heart className="h-5 w-5 fill-current" /> : <ListMusic className="h-5 w-5" />}
+          </span>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-content">{title}</h1>
+            <p className="text-xs font-medium text-content/40">
+              {videos.length} item{videos.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+        </div>
+
+        {videos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-28 text-content/30">
+            {isFav ? <Heart className="h-14 w-14" strokeWidth={1} /> : <ListMusic className="h-14 w-14" strokeWidth={1} />}
+            <p className="text-lg font-semibold text-content/50">
+              {isFav ? 'No favorites yet' : 'This playlist is empty'}
+            </p>
+            <p className="text-sm">
+              {isFav
+                ? 'Hover any video or image and tap the heart to save it here.'
+                : 'Hover a card and use “+ Playlist” to add items.'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 items-start gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {videos.map((v, i) => (
+              <motion.div
+                key={v.id}
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }}
+              >
+                <MediaCard video={v} />
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   /* subfolders at the current level (only meaningful in nested mode) */
   const subfolders: FolderNode[] =
