@@ -1,6 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Volume2, VolumeX, Trash2, X, LayoutGrid } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Trash2, X, LayoutGrid, Maximize, Minimize } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { getGridConfig } from '../utils/layoutGrid';
 import MediaTile from './MediaTile';
@@ -23,6 +23,21 @@ export default function MediaViewer() {
   const setLayoutMode = useStore((s) => s.setLayoutMode);
   const clearLayout = useStore((s) => s.clearLayout);
 
+  /* ── Fullscreen for the whole layout view ── */
+  const containerRef = useRef<HTMLElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else containerRef.current?.requestFullscreen?.().catch(() => {});
+  };
+
   /* Registry of live <video> elements keyed by slot, populated by the tiles. */
   const videoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
   const register = useCallback((slot: number, el: HTMLVideoElement | null) => {
@@ -43,11 +58,16 @@ export default function MediaViewer() {
 
   return (
     <motion.section
+      ref={containerRef}
       layout
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', damping: 26, stiffness: 300 }}
-      className="overflow-hidden rounded-2xl border border-content/10 bg-surface/50 shadow-xl shadow-black/20 backdrop-blur-sm"
+      className={`overflow-hidden border-content/10 shadow-xl shadow-black/20 ${
+        isFullscreen
+          ? 'flex h-screen w-screen flex-col bg-base'
+          : 'rounded-2xl border bg-surface/50 backdrop-blur-sm'
+      }`}
     >
       {/* ── Master control bar ── */}
       <div className="flex items-center gap-2 border-b border-content/10 px-3 py-2">
@@ -63,6 +83,10 @@ export default function MediaViewer() {
           <MasterBtn label="Unmute all videos" onClick={() => muteAll(false)} disabled={videoCount === 0}><Volume2 className="h-4 w-4" /></MasterBtn>
           <MasterBtn label="Mute all videos" onClick={() => muteAll(true)} disabled={videoCount === 0}><VolumeX className="h-4 w-4" /></MasterBtn>
           <span className="mx-1 h-5 w-px bg-content/10" />
+          <MasterBtn label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+          </MasterBtn>
+          <span className="mx-1 h-5 w-px bg-content/10" />
           <MasterBtn label="Clear layout" onClick={clearLayout} disabled={filled === 0}>
             <Trash2 className="h-4 w-4" />
           </MasterBtn>
@@ -73,8 +97,11 @@ export default function MediaViewer() {
       </div>
 
       {/* ── The grid ── */}
-      <div className="p-2 sm:p-3">
-        <motion.div layout className={`grid h-[46vh] gap-2 sm:h-[58vh] ${cfg.container}`}>
+      <div className={`p-2 sm:p-3 ${isFullscreen ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+        <motion.div
+          layout
+          className={`grid gap-2 ${isFullscreen ? 'h-full flex-1' : 'h-[46vh] sm:h-[58vh]'} ${cfg.container}`}
+        >
           <AnimatePresence initial={false}>
             {activeMedia.map((id, i) => (
               <motion.div
