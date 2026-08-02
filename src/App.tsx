@@ -12,6 +12,7 @@ import MediaViewer from './components/MediaViewer';
 import FilterBar from './components/FilterBar';
 import GridSettingsBar from './components/GridSettingsBar';
 import BroadcastView from './components/BroadcastView';
+import WatchPartyLobby from './components/WatchPartyLobby';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -129,6 +130,7 @@ export default function App() {
     return (
       <>
         <Welcome onPick={pickFolder} />
+        <WatchPartyLobby />
         <BroadcastView />
       </>
     );
@@ -165,7 +167,9 @@ export default function App() {
       {!layoutMode && currentVideoId && <Player />}
       {currentImageId && view === 'viewing_image' && <ImageViewer />}
 
-      {/* Renders only while an authenticated peer is actually broadcasting */}
+      {/* Watch-party room + the fullscreen viewer it hands off to.
+          Both render null unless a P2P session is live. */}
+      <WatchPartyLobby />
       <BroadcastView />
     </div>
   );

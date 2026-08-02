@@ -346,6 +346,12 @@ function SetupForm() {
             your files, your stream or your password — but it does see your room ID and IP. Point this at
             your own PeerServer to remove that third party entirely.
           </p>
+          <p className="rounded-lg bg-amber-500/10 p-2 text-xs leading-relaxed text-amber-500">
+            <span className="font-semibold">Required for Live Broadcast.</span> The public broker relays
+            file transfers fine, but does not reliably relay the live-video invitation, so broadcasts
+            never reach viewers. Run <code className="font-mono">npx peer --port 9000</code> and point
+            both browsers here.
+          </p>
           <div className="flex gap-2">
             <input
               value={signaling.host}
@@ -488,6 +494,7 @@ function LiveSession({ onOpenShare, onClose }: { onOpenShare: () => void; onClos
   const lastError = useWebRTCStore((s) => s.lastError);
   const disconnectAll = useWebRTCStore((s) => s.disconnectAll);
   const transfers = useWebRTCStore((s) => s.transferProgress);
+  const setLobbyOpen = useWebRTCStore((s) => s.setLobbyOpen);
 
   const [copied, setCopied] = useState(false);
   const authed = peers.filter((p) => p.authenticated);
@@ -591,6 +598,16 @@ function LiveSession({ onOpenShare, onClose }: { onOpenShare: () => void; onClos
           Send files
         </button>
         <BroadcastControls compact onNavigate={onClose} />
+        <button
+          onClick={() => {
+            setLobbyOpen(true);
+            onClose();
+          }}
+          className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-xl border border-content/10 bg-content/[0.03] text-sm font-semibold text-content/80 transition hover:bg-content/10"
+        >
+          <Users className="h-4 w-4" />
+          Open watch party room
+        </button>
       </div>
 
       {/* security log */}

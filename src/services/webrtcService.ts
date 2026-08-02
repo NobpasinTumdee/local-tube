@@ -112,6 +112,10 @@ interface ConnState {
   pumping: boolean;
   /** Title from the peer's `bcast-start`, used when their call arrives. */
   broadcastTitle: string;
+  /** Guest side: watchdog waiting for the announced media call to land. */
+  mediaWatchdog: ReturnType<typeof setTimeout> | null;
+  /** Guest side: how many re-call requests we've sent for this broadcast. */
+  mediaRetries: number;
 }
 
 interface Session {
@@ -159,6 +163,8 @@ export interface StartSessionOptions {
    * room id and your IP. It never sees file bytes or the password.
    */
   signaling?: { host: string; port: number; path?: string; secure?: boolean };
+  /** PeerJS console verbosity (0 silent … 3 all). Diagnostics only. */
+  debug?: number;
 }
 
 /**
@@ -191,7 +197,7 @@ export async function startSession(opts: StartSessionOptions): Promise<void> {
   const localId = opts.role === 'host' ? hostPeerId : `${hostPeerId}-g${randomHex(8)}`;
 
   const peer = new PeerCtor(localId, {
-    debug: 0,
+    debug: opts.debug ?? 0,
     ...(opts.signaling
       ? {
           host: opts.signaling.host,
@@ -229,6 +235,7 @@ export async function startSession(opts: StartSessionOptions): Promise<void> {
     const onOpen = (id: string) => {
       cleanup();
       store().sessionEstablished(id);
+      log('info', `Local peer id: ${id}`);
       log('info', opts.role === 'host' ? `Room ${opts.roomId} opened.` : `Dialling room ${opts.roomId}…`);
       resolve();
     };
@@ -283,6 +290,7 @@ function attachPeerHandlers(peer: Peer, role: SessionRole): void {
   });
 
   peer.on('call', (call) => {
+    log('info', `Incoming media call from ${call.peer} (our id: ${peer.id}).`);
     const st = session?.conns.get(call.peer);
     /*
      * A media call from anyone who has not completed the password
@@ -359,6 +367,7 @@ export function destroySession(): void {
   /* 1 ─ Data channels: cancel transfers, say goodbye, close. */
   for (const st of s.conns.values()) {
     if (st.authTimer) clearTimeout(st.authTimer);
+    if (st.mediaWatchdog) clearTimeout(st.mediaWatchdog);
     for (const out of st.outgoing.values()) out.cancelled = true;
     /* Drop half-received buffers so the bytes are collectable immediately. */
     for (const inc of st.incoming.values()) inc.parts.length = 0;
@@ -446,6 +455,8 @@ function setupConnection(conn: DataConnection, role: SessionRole): void {
     incoming: new Map(),
     pumping: false,
     broadcastTitle: 'Live broadcast',
+    mediaWatchdog: null,
+    mediaRetries: 0,
   };
   session.conns.set(conn.peer, st);
 
@@ -516,6 +527,9 @@ function handleData(st: ConnState, data: unknown): void {
   const msg = decodeMessage(data);
   if (!msg) throw new Error('Undecodable frame');
 
+  /** Set by the bcast-start branch; declared here for the switch scope. */
+  let alreadyTracking = false;
+
   /*
    * THE GATE. An unauthenticated peer's vocabulary is limited to the
    * handshake itself; anything else is treated as hostile and severs the
@@ -557,11 +571,29 @@ function handleData(st: ConnState, data: unknown): void {
       break;
     case 'bcast-start':
       /* Announcement only — the actual media arrives as a separate call,
-       * which is still checked against the authenticated peer set. */
+       * which is still checked against the authenticated peer set. This
+       * opens the lobby immediately so the viewer sees "connecting to
+       * stream…" rather than nothing while ICE negotiates. */
       st.broadcastTitle = sanitizeDisplayName(msg.title) || 'Live broadcast';
+      alreadyTracking = store().broadcastMeta?.peerId === st.conn.peer;
+      store().announceIncomingBroadcast({
+        peerId: st.conn.peer,
+        peerName: st.name,
+        title: st.broadcastTitle,
+        startedAt: Date.now(),
+      });
       log('info', `${st.name} started broadcasting "${st.broadcastTitle}".`);
+      /* Each re-call re-announces, so only reset the retry budget for a
+       * genuinely new broadcast — otherwise the watchdog loops forever. */
+      if (!alreadyTracking) st.mediaRetries = 0;
+      armMediaWatchdog(st);
+      break;
+    case 'bcast-request':
+      /* A viewer never got our offer (broker dropped it). Call them again. */
+      onBroadcastRequest(st, msg.attempt);
       break;
     case 'bcast-stop':
+      clearMediaWatchdog(st);
       endIncomingBroadcast(st.conn.peer);
       break;
     case 'bye':
@@ -683,6 +715,10 @@ function markAuthenticated(st: ConnState): void {
   store().setStatus(store().broadcastTitle ? 'broadcasting' : 'connected');
   log('info', `${st.name} authenticated (${shortId(st.conn.peer)}).`);
 
+  /* A guest's whole purpose is to wait for the host, so drop them straight
+   * into the room instead of leaving them on an empty screen. */
+  if (session?.role === 'guest') store().setLobbyOpen(true);
+
   /* Late joiner during a live broadcast — bring them in. */
   if (session?.localStream && store().broadcastTitle) {
     callPeer(st, store().broadcastTitle ?? 'Live');
@@ -716,6 +752,7 @@ function handleConnectionClosed(st: ConnState, reason?: string): void {
   session.conns.delete(st.conn.peer);
 
   if (st.authTimer) clearTimeout(st.authTimer);
+  clearMediaWatchdog(st);
 
   /* Fail every transfer that was still moving, in both directions. */
   const transfers = store().transferProgress;
@@ -1107,16 +1144,50 @@ export function startBroadcast(stream: MediaStream, title: string): void {
   const authenticated = [...session.conns.values()].filter((st) => st.authenticated);
   if (authenticated.length === 0) throw new Error('No authenticated peers to broadcast to.');
 
+  /*
+   * A captureStream() taken from a media element that isn't actually
+   * decoding yields a MediaStream with ZERO tracks. peer.call() with such
+   * a stream still "succeeds": it negotiates a connection with no media
+   * m-lines, so the receiver's ontrack never fires and the viewer never
+   * opens — a silent failure that looks exactly like a broken feature.
+   * Refuse it here, where we can still explain why.
+   */
+  const tracks = stream.getTracks();
+  if (tracks.length === 0) {
+    throw new Error(
+      'The player produced an empty stream. Make sure the video is actually playing, then go live again.',
+    );
+  }
+
   session.localStream = stream;
   const safeTitle = sanitizeDisplayName(title) || 'Live';
   store().setBroadcast(safeTitle);
 
+  /* If the source ends (user closed the player), take the broadcast down. */
+  for (const track of tracks) {
+    track.addEventListener('ended', () => {
+      if (session?.localStream === stream) {
+        log('warn', 'The captured video ended — stopping the broadcast.');
+        stopBroadcast();
+      }
+    });
+  }
+
   for (const st of authenticated) callPeer(st, safeTitle);
-  log('info', `Broadcasting "${safeTitle}" to ${authenticated.length} peer(s).`);
+  log(
+    'info',
+    `Broadcasting "${safeTitle}" to ${authenticated.length} peer(s) — ` +
+      `${stream.getVideoTracks().length} video / ${stream.getAudioTracks().length} audio track(s).`,
+  );
 }
 
 function callPeer(st: ConnState, title: string): void {
   if (!session?.localStream) return;
+  if (!session.peer.open || session.peer.disconnected) {
+    log('warn', `Signaling link is down — ${st.name} will not receive the call until it recovers.`);
+  }
+  /* Announce over the DataChannel first so the guest's lobby can show
+   * "connecting to stream…" while ICE does its thing. */
   send(st, { t: 'bcast-start', title });
   try {
     const call = session.peer.call(st.conn.peer, session.localStream);
@@ -1127,6 +1198,7 @@ function callPeer(st: ConnState, title: string): void {
       store().removeViewer(st.conn.peer);
     });
     call.on('error', (err) => log('warn', `Stream to ${st.name} failed: ${err.message}`));
+    log('info', `Calling ${st.conn.peer} with the live stream (our id: ${session.peer.id}).`);
   } catch (err) {
     log('warn', `Could not start the stream to ${st.name}: ${(err as Error).message}`);
   }
@@ -1162,39 +1234,194 @@ export function stopBroadcast(): void {
   log('info', 'Broadcast ended.');
 }
 
-function acceptBroadcastCall(call: MediaConnection, st: ConnState): void {
-  if (!session) return;
+/* ─────────────────────────────────────────────────────────────
+ *  RECEIVING A BROADCAST (guest)
+ * ─────────────────────────────────────────────────────────────
+ *  PeerJS emits `stream` exactly once, from RTCPeerConnection.ontrack,
+ *  and does NOT replay it to listeners attached later. Three things here
+ *  exist because of that:
+ *
+ *   1. Listeners are attached BEFORE answer(). answer() synchronously
+ *      starts negotiation and drains any signaling messages PeerJS
+ *      buffered before this connection object existed, so attaching
+ *      afterwards is a race we don't need to take.
+ *   2. After answering we read `call.remoteStream` directly, in case the
+ *      event fired during answer() and we still missed it.
+ *   3. A late sweep rebuilds the stream from the peer connection's
+ *      receivers if, despite the above, nothing arrived. This is the
+ *      difference between "the viewer silently never appears" and "the
+ *      viewer appears".
+ * ───────────────────────────────────────────────────────────── */
 
-  /* Answer with no local stream: this is receive-only. We never hand a
-   * camera, a mic or anything else back. */
-  call.answer();
-  session.incomingCall = call;
+/** How long to wait for `stream` before rebuilding from the receivers. */
+const STREAM_FALLBACK_MS = 2500;
 
-  call.on('stream', (stream) => {
-    store().setIncomingBroadcast({
-      peerId: call.peer,
-      peerName: st.name,
-      title: st.broadcastTitle,
-      stream,
-    });
-    log('info', `Watching ${st.name}'s live broadcast.`);
-  });
+/* ── Media-call watchdog (guest side) ──────────────────────────
+ *
+ *  A media offer is signaling traffic: it goes host → broker → guest. If
+ *  the guest's websocket is mid-reconnect when it arrives, the broker
+ *  drops it and NOTHING retries — the host believes it called, the guest
+ *  never hears, and the viewer silently never opens. Meanwhile the
+ *  DataChannel is peer-to-peer and perfectly healthy, which is why the
+ *  "X started broadcasting" text still shows up.
+ *
+ *  So the guest arms a watchdog when a broadcast is announced and asks
+ *  for a re-call over the DataChannel if no media materialises. */
+const MEDIA_WATCHDOG_MS = 4000;
+const MAX_MEDIA_RETRIES = 4;
 
-  call.on('close', () => endIncomingBroadcast(call.peer));
-  call.on('error', () => endIncomingBroadcast(call.peer));
+function clearMediaWatchdog(st: ConnState): void {
+  if (st.mediaWatchdog) {
+    clearTimeout(st.mediaWatchdog);
+    st.mediaWatchdog = null;
+  }
 }
 
-function endIncomingBroadcast(peerId: string): void {
-  const current = store().incomingBroadcast;
-  if (!current || current.peerId !== peerId) return;
-  for (const track of current.stream.getTracks()) {
+function armMediaWatchdog(st: ConnState): void {
+  clearMediaWatchdog(st);
+  st.mediaWatchdog = setTimeout(() => {
+    st.mediaWatchdog = null;
+    if (!session) return;
+    /* Already watching? Nothing to do. */
+    if (store().isReceivingBroadcast) return;
+    /* Broadcast was withdrawn while we waited. */
+    if (store().broadcastMeta?.peerId !== st.conn.peer) return;
+
+    if (st.mediaRetries >= MAX_MEDIA_RETRIES) {
+      log('danger', `Gave up waiting for ${st.name}'s stream after ${MAX_MEDIA_RETRIES} attempts.`);
+      store().setError(
+        `${st.name}'s video invitation never arrived. The public PeerJS broker relays file transfers but does not reliably relay live-video invitations. ` +
+          `To use Live Broadcast, both of you must set a self-hosted signaling server under "Advanced — signaling server" (run: npx peer --port 9000).`,
+      );
+      return;
+    }
+
+    st.mediaRetries++;
+    log('warn', `No media from ${st.name} yet — requesting a re-call (attempt ${st.mediaRetries}).`);
+    send(st, { t: 'bcast-request', attempt: st.mediaRetries });
+    armMediaWatchdog(st);
+  }, MEDIA_WATCHDOG_MS);
+}
+
+/** Host side: a viewer says our offer never arrived, so place it again. */
+function onBroadcastRequest(st: ConnState, attempt: number): void {
+  if (!session?.localStream) {
+    /* We're not live (any more) — tell them so they stop asking. */
+    send(st, { t: 'bcast-stop' });
+    return;
+  }
+  if (!Number.isInteger(attempt) || attempt < 1 || attempt > MAX_MEDIA_RETRIES + 1) {
+    throw new Error('Malformed broadcast request');
+  }
+
+  /* Tear down the stale call before replacing it, or PeerJS keeps both. */
+  const existing = session.calls.get(st.conn.peer);
+  if (existing) {
     try {
-      track.stop();
+      existing.close();
     } catch {
       /* ignore */
     }
+    session.calls.delete(st.conn.peer);
+    store().removeViewer(st.conn.peer);
   }
-  store().setIncomingBroadcast(null);
+
+  log('warn', `${st.name} did not receive the stream — re-calling (their attempt ${attempt}).`);
+  callPeer(st, store().broadcastTitle ?? st.broadcastTitle);
+}
+
+function acceptBroadcastCall(call: MediaConnection, st: ConnState): void {
+  if (!session) return;
+
+  const meta = () => ({
+    peerId: call.peer,
+    peerName: st.name,
+    title: st.broadcastTitle,
+    startedAt: Date.now(),
+  });
+
+  let delivered = false;
+  const deliver = (stream: MediaStream, how: string) => {
+    if (delivered || !session) return;
+    if (stream.getTracks().length === 0) {
+      log('warn', `${st.name}'s stream arrived with no tracks — ignoring (${how}).`);
+      return;
+    }
+    delivered = true;
+    /* Media landed — stop asking the host to re-call. */
+    clearMediaWatchdog(st);
+    st.mediaRetries = 0;
+    store().setActiveStream(stream, meta());
+    log(
+      'info',
+      `Watching ${st.name}'s broadcast — ${stream.getVideoTracks().length} video / ` +
+        `${stream.getAudioTracks().length} audio track(s) [${how}].`,
+    );
+
+    /* Audio often negotiates a beat after video; re-commit so the viewer
+     * picks up the extra track instead of staying silent forever. */
+    stream.addEventListener('addtrack', () => {
+      if (store().activeStream === stream) store().setActiveStream(stream, meta());
+    });
+    stream.addEventListener('removetrack', () => {
+      if (stream.getTracks().length === 0) endIncomingBroadcast(call.peer);
+    });
+  };
+
+  /* 1 ─ Listen first. */
+  call.on('stream', (stream) => deliver(stream, 'stream event'));
+  call.on('close', () => endIncomingBroadcast(call.peer));
+  call.on('error', (err) => {
+    log('warn', `Broadcast connection with ${st.name} failed: ${err.message}`);
+    endIncomingBroadcast(call.peer);
+  });
+
+  /* 2 ─ Answer receive-only. No camera, mic or screen is ever offered back. */
+  try {
+    call.answer();
+  } catch (err) {
+    log('danger', `Could not answer ${st.name}'s broadcast: ${(err as Error).message}`);
+    return;
+  }
+  session.incomingCall = call;
+  log('info', `Answered ${st.name}'s broadcast call — negotiating media…`);
+
+  /* Already fired during answer()? Take it now. */
+  const early = (call as MediaConnection & { remoteStream?: MediaStream }).remoteStream;
+  if (early) deliver(early, 'remoteStream');
+
+  /* 3 ─ Last-resort sweep of the transceivers. */
+  setTimeout(() => {
+    if (delivered || !session || session.incomingCall !== call) return;
+    const pc = call.peerConnection;
+    const tracks = pc?.getReceivers().map((r) => r.track).filter((t): t is MediaStreamTrack => !!t) ?? [];
+    if (tracks.length === 0) {
+      log(
+        'warn',
+        `No media arrived from ${st.name} after ${STREAM_FALLBACK_MS}ms. ` +
+          `Their player may not have been playing when they went live.`,
+      );
+      return;
+    }
+    deliver(new MediaStream(tracks), 'receiver fallback');
+  }, STREAM_FALLBACK_MS);
+}
+
+function endIncomingBroadcast(peerId: string): void {
+  const meta = store().broadcastMeta;
+  if (!meta || meta.peerId !== peerId) return;
+
+  const stream = store().activeStream;
+  if (stream) {
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  store().clearIncomingBroadcast();
   if (session?.incomingCall?.peer === peerId) session.incomingCall = null;
   log('info', 'The broadcast ended.');
 }

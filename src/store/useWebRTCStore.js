@@ -25,7 +25,10 @@ const CLEAN_SLATE = {
     transferProgress: {},
     broadcastTitle: null,
     broadcastViewers: [],
-    incomingBroadcast: null,
+    activeStream: null,
+    isReceivingBroadcast: false,
+    broadcastMeta: null,
+    lobbyOpen: false,
 };
 export const useWebRTCStore = create()((set, get) => ({
     ...CLEAN_SLATE,
@@ -60,7 +63,9 @@ export const useWebRTCStore = create()((set, get) => ({
         peers: s.peers.filter((p) => p.id !== id),
         broadcastViewers: s.broadcastViewers.filter((v) => v !== id),
         /* A departing broadcaster takes their stream with them. */
-        incomingBroadcast: s.incomingBroadcast?.peerId === id ? null : s.incomingBroadcast,
+        ...(s.broadcastMeta?.peerId === id
+            ? { activeStream: null, isReceivingBroadcast: false, broadcastMeta: null }
+            : {}),
     })),
     upsertTransfer: (transfer) => set((s) => ({ transferProgress: { ...s.transferProgress, [transfer.id]: transfer } })),
     patchTransfer: (id, patch) => set((s) => {
@@ -89,7 +94,21 @@ export const useWebRTCStore = create()((set, get) => ({
         ? {}
         : { broadcastViewers: [...s.broadcastViewers, peerId] }),
     removeViewer: (peerId) => set((s) => ({ broadcastViewers: s.broadcastViewers.filter((v) => v !== peerId) })),
-    setIncomingBroadcast: (broadcast) => set({ incomingBroadcast: broadcast }),
+    /*
+     * Announced but not yet flowing. Keeping this distinct from
+     * setActiveStream is what lets the lobby say "connecting to stream…"
+     * rather than silently sitting on the waiting screen while ICE works.
+     */
+    announceIncomingBroadcast: (meta) => set({ broadcastMeta: meta, isReceivingBroadcast: false, lobbyOpen: true }),
+    setActiveStream: (stream, meta) => set({
+        activeStream: stream,
+        broadcastMeta: meta,
+        isReceivingBroadcast: true,
+        /* Surface the viewer without the user having to hunt for it. */
+        lobbyOpen: true,
+    }),
+    clearIncomingBroadcast: () => set({ activeStream: null, isReceivingBroadcast: false, broadcastMeta: null }),
+    setLobbyOpen: (open) => set({ lobbyOpen: open }),
     logEvent: (level, message) => set((s) => ({
         events: [{ id: newEventId(), at: Date.now(), level, message }, ...s.events].slice(0, MAX_EVENTS),
     })),
@@ -120,7 +139,7 @@ export const useWebRTCStore = create()((set, get) => ({
         rtcTeardown = null;
         /* 2 ─ Revoke every blob URL minted from received data. Without this the
          *     bytes stay alive in the browser for the lifetime of the document. */
-        const { transferProgress, incomingBroadcast } = get();
+        const { transferProgress, activeStream } = get();
         for (const t of Object.values(transferProgress)) {
             if (t.blobUrl) {
                 try {
@@ -132,8 +151,8 @@ export const useWebRTCStore = create()((set, get) => ({
             }
         }
         /* 3 ─ Stop any inbound media tracks we still hold a handle on. */
-        if (incomingBroadcast) {
-            for (const track of incomingBroadcast.stream.getTracks()) {
+        if (activeStream) {
+            for (const track of activeStream.getTracks()) {
                 try {
                     track.stop();
                 }
@@ -168,3 +187,5 @@ export const selectPendingIncoming = (s) => Object.values(s.transferProgress).fi
 export const selectActiveTransfers = (s) => Object.values(s.transferProgress).filter((t) => t.status === 'transferring');
 /** True while the app holds any P2P resource at all. */
 export const selectIsLive = (s) => s.status !== 'disconnected';
+/** A broadcast was announced but its media hasn't negotiated yet. */
+export const selectBroadcastPending = (s) => !!s.broadcastMeta && !s.isReceivingBroadcast;

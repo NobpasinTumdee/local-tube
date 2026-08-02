@@ -156,6 +156,21 @@ export interface BroadcastStopMsg {
   t: 'bcast-stop';
 }
 
+/**
+ * Guest → host: "your announcement arrived but your media call never did,
+ * please place it again."
+ *
+ * Media offers travel through the signaling broker, which drops anything
+ * addressed to a peer whose websocket happens to be reconnecting. The
+ * DataChannel is peer-to-peer and unaffected, so it is the reliable path
+ * for asking for a retry — without this, a dropped offer is unrecoverable
+ * and the viewer never opens.
+ */
+export interface BroadcastRequestMsg {
+  t: 'bcast-request';
+  attempt: number;
+}
+
 /** Courtesy notice before a clean disconnect. */
 export interface ByeMsg {
   t: 'bye';
@@ -173,6 +188,7 @@ export type WireMessage =
   | FileAbortMsg
   | BroadcastStartMsg
   | BroadcastStopMsg
+  | BroadcastRequestMsg
   | ByeMsg;
 
 /** The only two messages tolerated before a peer is authenticated. */

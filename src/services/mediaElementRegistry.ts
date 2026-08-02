@@ -50,9 +50,52 @@ export function isCapturable(el: HTMLVideoElement | null): el is HTMLVideoElemen
 /**
  * Cross-browser captureStream. Chromium/Edge expose the standard name;
  * Firefox still only has the prefixed one.
+ *
+ * IMPORTANT: capturing a *paused* element is the classic way to end up
+ * with a stream that has tracks but never delivers frames — and capturing
+ * one that hasn't decoded anything yields no tracks at all. Both look
+ * identical to the broadcaster and produce a viewer that never opens, so
+ * the caller should use {@link captureLiveStream} rather than this.
  */
 export function captureVideoStream(el: HTMLVideoElement): MediaStream {
   if (typeof el.captureStream === 'function') return el.captureStream();
   if (typeof el.mozCaptureStream === 'function') return el.mozCaptureStream();
   throw new Error('This browser cannot capture a stream from the player (try Chrome, Edge or Firefox).');
+}
+
+/**
+ * Captures the element, guaranteeing a stream that is actually live:
+ * playback is resumed if paused, and the result is verified to carry at
+ * least one track. Throws with an actionable message otherwise.
+ */
+export async function captureLiveStream(el: HTMLVideoElement): Promise<MediaStream> {
+  if (el.readyState < 2) {
+    throw new Error('The player has not loaded any video yet — start playback, then go live.');
+  }
+
+  /* Frames only flow from a playing element. */
+  if (el.paused) {
+    try {
+      await el.play();
+    } catch {
+      throw new Error('Could not resume playback. Press play in the player, then go live.');
+    }
+  }
+
+  const stream = captureVideoStream(el);
+
+  /*
+   * Chrome can hand back a stream whose tracks attach a tick later. Give
+   * it a few frames' grace before declaring it empty, rather than failing
+   * a broadcast that would have worked.
+   */
+  if (stream.getTracks().length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (stream.getTracks().length === 0) {
+    throw new Error(
+      'The player produced no media tracks. This usually means the video is not decoding — try seeking or pressing play, then go live again.',
+    );
+  }
+  return stream;
 }

@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
-  Maximize2,
+  Loader2,
   Minimize2,
   RadioTower,
   Square,
+  Users,
   Volume2,
   VolumeX,
   X,
@@ -13,7 +14,7 @@ import {
 import { useStore } from '../store/useStore';
 import { useWebRTCStore, selectAuthenticatedPeers } from '../store/useWebRTCStore';
 import {
-  captureVideoStream,
+  captureLiveStream,
   getActiveVideoElement,
   isCapturable,
   subscribeActiveVideo,
@@ -23,16 +24,14 @@ import { startBroadcast, stopBroadcast } from '../services/webrtcService';
 /* ─────────────────────────────────────────────────────────────
  *  LIVE BROADCAST
  * ─────────────────────────────────────────────────────────────
- *  Two halves of one feature:
+ *  • BroadcastControls — host side. Captures the <video> the user is
+ *    already watching and pushes frames to verified peers. The file never
+ *    moves; a viewer can watch but never obtains a copy.
  *
- *  • BroadcastControls — host side. Grabs the live pixels off the <video>
- *    element the user is already watching with captureStream() and pushes
- *    them to authenticated peers. The file itself never moves; only frames
- *    do, so a viewer can watch but never obtains a copy.
- *
- *  • BroadcastView — viewer side. Renders whatever authenticated stream
- *    arrived. It is receive-only: we answer the call with no stream of our
- *    own, so no camera, microphone or screen is ever offered back.
+ *  • BroadcastView — viewer side, FULLSCREEN. WatchPartyLobby is the
+ *    primary viewer; this takes over only when the lobby has been closed,
+ *    so dismissing the room UI never loses the stream. Exactly one of the
+ *    two is ever on screen.
  * ───────────────────────────────────────────────────────────── */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -54,16 +53,14 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
   const videos = useStore((s) => s.videos);
   const currentVideoId = useStore((s) => s.currentVideoId);
 
-  /* Track the live player element so the button enables/disables itself. */
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(() => getActiveVideoElement());
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => subscribeActiveVideo(setVideoEl), []);
 
-  /*
-   * readyState changes without re-rendering React, so poll lightly while
-   * the panel is open rather than wiring listeners onto a foreign element.
-   */
+  /* readyState changes without notifying React, so poll lightly while idle
+   * rather than wiring listeners onto an element we don't own. */
   const [, forceTick] = useState(0);
   useEffect(() => {
     if (broadcastTitle) return;
@@ -78,20 +75,29 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
 
   const live = !!broadcastTitle;
   const ready = isCapturable(videoEl);
-  const canStart = ready && peers.length > 0;
+  const canStart = ready && peers.length > 0 && !busy;
 
-  function go() {
+  async function go() {
     setError(null);
+    setBusy(true);
     try {
       const el = getActiveVideoElement();
       if (!isCapturable(el)) throw new Error('Play a video first — there is nothing to capture yet.');
-      /* Live frames + audio straight off the element the user is watching. */
-      startBroadcast(captureVideoStream(el), title);
+      /*
+       * captureLiveStream resumes playback if paused and verifies the
+       * stream actually carries tracks. Broadcasting a track-less stream
+       * negotiates "successfully" but delivers nothing, which is exactly
+       * the silent failure this replaces.
+       */
+      const stream = await captureLiveStream(el);
+      startBroadcast(stream, title);
       onNavigate?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not start the broadcast.';
       setError(message);
       logEvent('warn', message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -120,13 +126,13 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
             title={reason}
             className="flex h-10 items-center justify-center gap-2 rounded-xl bg-content/[0.06] text-sm font-semibold text-content transition hover:bg-content/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <RadioTower className="h-4 w-4" />
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RadioTower className="h-4 w-4" />}
             Go live
           </button>
         )}
         {error && (
-          <p className="col-span-2 flex items-center gap-1.5 text-xs text-amber-500">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <p className="col-span-2 flex items-start gap-1.5 text-xs leading-relaxed text-amber-500">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {error}
           </p>
         )}
@@ -159,14 +165,14 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
           title={reason}
           className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <RadioTower className="h-4 w-4" />
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RadioTower className="h-4 w-4" />}
           Go live
         </button>
       )}
-      {!canStart && !live && <p className="mt-2 text-center text-xs text-content/40">{reason}</p>}
+      {!canStart && !live && !busy && <p className="mt-2 text-center text-xs text-content/40">{reason}</p>}
       {error && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-500">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-amber-500">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
       )}
@@ -175,89 +181,99 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
 }
 
 /* ═══════════════════════════════════════════════════════════════
- *  VIEWER
+ *  VIEWER (fullscreen fallback)
  * ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Floating player for an incoming broadcast. Mounted app-wide; renders
- * nothing at all unless an authenticated peer is actually streaming.
- */
 export default function BroadcastView() {
-  const incoming = useWebRTCStore((s) => s.incomingBroadcast);
+  const activeStream = useWebRTCStore((s) => s.activeStream);
+  const isReceiving = useWebRTCStore((s) => s.isReceivingBroadcast);
+  const meta = useWebRTCStore((s) => s.broadcastMeta);
+  const lobbyOpen = useWebRTCStore((s) => s.lobbyOpen);
+  const setLobbyOpen = useWebRTCStore((s) => s.setLobbyOpen);
   const disconnectAll = useWebRTCStore((s) => s.disconnectAll);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [expanded, setExpanded] = useState(true);
-  /* Browsers block autoplay with sound; start muted and let the user opt in. */
   const [muted, setMuted] = useState(true);
-  const [waiting, setWaiting] = useState(true);
+  const [needsGesture, setNeedsGesture] = useState(false);
+
+  /* The lobby owns the viewer whenever it's open. */
+  const visible = isReceiving && !lobbyOpen;
 
   /*
-   * MediaStream is attached via srcObject, never via a URL. It is live —
-   * there is no buffer to seek, which is exactly what keeps latency at
-   * WebRTC's floor rather than a player's.
+   * A MediaStream cannot be assigned to `src` — it has no URL, and
+   * stringifying it yields "[object MediaStream]", so the element shows
+   * nothing at all. It must be attached imperatively to the DOM node via
+   * srcObject, which means a ref + an effect keyed on the stream.
    */
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !incoming) return;
-    el.srcObject = incoming.stream;
-    el.play().catch(() => {
-      /* Autoplay refused — the poster/unmute affordance covers it. */
-    });
-    return () => {
+    if (!el) return;
+    if (!activeStream || !visible) {
       el.srcObject = null;
-    };
-  }, [incoming]);
+      return;
+    }
+    if (el.srcObject === activeStream) return;
 
-  useEffect(() => {
-    if (!incoming) return;
-    setWaiting(incoming.stream.getVideoTracks().length === 0);
-  }, [incoming]);
+    el.srcObject = activeStream;
+    el.muted = muted;
+    el.play().then(
+      () => setNeedsGesture(false),
+      () => setNeedsGesture(true),
+    );
+  }, [activeStream, visible, muted]);
 
   useEffect(() => {
     const el = videoRef.current;
     if (el) el.muted = muted;
-  }, [muted, incoming]);
+  }, [muted, visible]);
 
-  if (!incoming) return null;
+  const unmuteAndSync = () => {
+    const el = videoRef.current;
+    setMuted(false);
+    if (!el) return;
+    el.muted = false;
+    el.play().then(
+      () => setNeedsGesture(false),
+      () => setNeedsGesture(true),
+    );
+  };
+
+  if (!visible) return null;
 
   return createPortal(
-    <div
-      className={
-        expanded
-          ? 'fixed inset-0 z-[300] flex flex-col bg-black/95 backdrop-blur-sm'
-          : 'fixed bottom-5 right-5 z-[300] flex w-[380px] flex-col overflow-hidden rounded-xl border border-content/10 bg-surface shadow-2xl shadow-black/60'
-      }
-    >
+    <div className="fixed inset-0 z-[300] flex flex-col bg-black">
       {/* bar */}
-      <div
-        className={`flex items-center gap-2 px-3 py-2 ${
-          expanded ? 'bg-black/60' : 'border-b border-content/10 bg-surface'
-        }`}
-      >
+      <div className="flex items-center gap-2 bg-black/70 px-4 py-2">
         <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
           Live
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-content">{incoming.title}</p>
-          <p className="truncate text-xs text-content/50">from {incoming.peerName}</p>
+          <p className="truncate text-sm font-semibold text-white">{meta?.title}</p>
+          <p className="truncate text-xs text-white/50">from {meta?.peerName}</p>
         </div>
 
         <button
           onClick={() => setMuted((m) => !m)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
           aria-label={muted ? 'Unmute' : 'Mute'}
-          title={muted ? 'Unmute' : 'Mute'}
         >
           {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
         <button
-          onClick={() => setExpanded((v) => !v)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content"
-          aria-label={expanded ? 'Minimize' : 'Expand'}
+          onClick={() => setLobbyOpen(true)}
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/20"
+          title="Back to the watch party room"
         >
-          {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          <Users className="h-3.5 w-3.5" />
+          Room
+        </button>
+        <button
+          onClick={() => setLobbyOpen(true)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
+          aria-label="Exit fullscreen"
+        >
+          <Minimize2 className="h-4 w-4" />
         </button>
         <button
           onClick={() => disconnectAll('Left the broadcast (kill switch)')}
@@ -270,29 +286,23 @@ export default function BroadcastView() {
       </div>
 
       {/* stream */}
-      <div className={`relative bg-black ${expanded ? 'flex-1' : 'aspect-video w-full'}`}>
+      <div className="relative flex-1 bg-black">
         <video
           ref={videoRef}
           autoPlay
           playsInline
+          muted={muted}
           controls={false}
           className="h-full w-full object-contain"
-          onLoadedMetadata={() => setWaiting(false)}
-          onClick={() => setMuted((m) => !m)}
+          onClick={() => (muted ? unmuteAndSync() : setMuted(true))}
         />
-        {waiting && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-content/50">
-            <RadioTower className="h-8 w-8 animate-pulse" />
-            <p className="text-sm">Waiting for the stream…</p>
-          </div>
-        )}
-        {muted && !waiting && (
+        {(muted || needsGesture) && (
           <button
-            onClick={() => setMuted(false)}
-            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/80 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-black"
+            onClick={unmuteAndSync}
+            className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white shadow-2xl shadow-primary/40 transition hover:brightness-110 active:scale-[0.98]"
           >
             <VolumeX className="h-4 w-4" />
-            Tap to unmute
+            Tap to Unmute &amp; Sync
           </button>
         )}
       </div>
