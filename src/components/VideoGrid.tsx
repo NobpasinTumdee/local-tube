@@ -66,6 +66,7 @@ export default function VideoGrid({ videos }: Props) {
           <div className="grid grid-cols-1 items-start gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {videos.map((v, i) => (
               <motion.div
+                layout
                 key={v.id}
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -177,6 +178,7 @@ export default function VideoGrid({ videos }: Props) {
               <div className="grid grid-cols-1 items-start gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {videos.map((v, i) => (
                   <motion.div
+                    layout
                     key={v.id}
                     initial={{ opacity: 0, y: 18 }}
                     animate={{ opacity: 1, y: 0 }}

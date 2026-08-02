@@ -9,6 +9,7 @@ import VideoGrid from './components/VideoGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
 import MediaViewer from './components/MediaViewer';
+import FilterBar from './components/FilterBar';
 export default function App() {
     const videos = useStore((s) => s.videos);
     const currentFolderPath = useStore((s) => s.currentFolderPath);
@@ -55,6 +56,8 @@ export default function App() {
     const collection = useStore((s) => s.collection);
     const favorites = useStore((s) => s.favorites);
     const virtualPlaylists = useStore((s) => s.virtualPlaylists);
+    const mediaTags = useStore((s) => s.mediaTags);
+    const activeFilterTags = useStore((s) => s.activeFilterTags);
     /*
      * Visible list rules:
      * - Virtual collection (favorites / playlist): flat across the whole library,
@@ -72,6 +75,12 @@ export default function App() {
                 return false;
             if (homeFilter === 'images' && v.mediaType !== 'image')
                 return false;
+            /* tag filter — item must carry ALL active tags (intersection) */
+            if (activeFilterTags.length) {
+                const t = mediaTags[v.id] ?? [];
+                if (!activeFilterTags.every((tag) => t.includes(tag)))
+                    return false;
+            }
             return true;
         };
         /* Virtual collections resolve mediaIds → entries, preserving their order. */
@@ -100,7 +109,7 @@ export default function App() {
             }
             return matchesSearchAndType(v);
         });
-    }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists]);
+    }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists, mediaTags, activeFilterTags]);
     /*
      * Keep the player's playback queue aligned with what the user is browsing,
      * so "next video" = files[currentIndex + 1] within the current folder/filter.
@@ -113,5 +122,5 @@ export default function App() {
         return _jsx(Welcome, { onPick: pickFolder });
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsx(VideoGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onPick: pickFolder }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsx(FilterBar, {}), _jsx(VideoGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {})] }));
 }

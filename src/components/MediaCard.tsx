@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock, Heart, ListPlus, Check } from 'lucide-react';
-import { useStore } from '../store/useStore';
+import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock, Heart, ListPlus, Check, Tag, Hash, X } from 'lucide-react';
+import { useStore, normalizeTag } from '../store/useStore';
 import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
 import { formatDuration, formatRelative, formatResolution } from '../utils/format';
 import { DND_MEDIA_ID } from '../utils/layoutGrid';
@@ -29,6 +29,11 @@ export default function MediaCard({ video }: Props) {
   const createPlaylist = useStore((s) => s.createPlaylist);
   const addToPlaylist = useStore((s) => s.addToPlaylist);
 
+  /* custom tags for this item */
+  const tags = useStore((s) => s.mediaTags[video.id]);
+  const addTag = useStore((s) => s.addTag);
+  const removeTag = useStore((s) => s.removeTag);
+
   const cardRef = useRef<HTMLDivElement>(null);
   const [requested, setRequested] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -41,6 +46,14 @@ export default function MediaCard({ video }: Props) {
   const [newName, setNewName] = useState('');
   const plBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  /* tag editor menu (also a portal) */
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagMenuPos, setTagMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [tagInput, setTagInput] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const tagBtnRef = useRef<HTMLButtonElement>(null);
+  const tagMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -64,6 +77,7 @@ export default function MediaCard({ video }: Props) {
 
   const openPlaylistMenu = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setTagMenuOpen(false);
     const r = plBtnRef.current?.getBoundingClientRect();
     if (r) setMenuPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
     setMenuOpen((o) => !o);
@@ -74,6 +88,48 @@ export default function MediaCard({ video }: Props) {
     if (!name) return;
     addToPlaylist(createPlaylist(name), video.id);
     setNewName('');
+  };
+
+  /* ── tag editor ── */
+  useEffect(() => {
+    if (!tagMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (tagMenuRef.current?.contains(e.target as Node) || tagBtnRef.current?.contains(e.target as Node)) return;
+      setTagMenuOpen(false);
+    };
+    const close = () => setTagMenuOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setTagMenuOpen(false); };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [tagMenuOpen]);
+
+  const openTagMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    const r = tagBtnRef.current?.getBoundingClientRect();
+    if (r) setTagMenuPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    /* snapshot all previously-used tags across the library (non-reactive) */
+    const all = useStore.getState().mediaTags;
+    const set = new Set<string>();
+    for (const arr of Object.values(all)) for (const t of arr) set.add(t);
+    (tags ?? []).forEach((t) => set.delete(t));
+    setTagSuggestions([...set].sort((a, b) => a.localeCompare(b)));
+    setTagMenuOpen((o) => !o);
+  };
+
+  const commitTag = (raw: string) => {
+    addTag(video.id, raw);
+    setTagInput('');
+    const norm = normalizeTag(raw);
+    if (norm) setTagSuggestions((s) => s.filter((t) => t !== norm));
   };
 
   const isImage = video.mediaType === 'image';
@@ -298,6 +354,17 @@ export default function MediaCard({ video }: Props) {
           >
             <ListPlus className="h-4 w-4" />
           </button>
+          <button
+            ref={tagBtnRef}
+            onClick={openTagMenu}
+            className={`flex h-8 w-8 items-center justify-center rounded-full backdrop-blur-sm transition ${
+              tagMenuOpen ? 'bg-black/80 text-white' : 'bg-black/50 text-white/90 hover:bg-black/80'
+            }`}
+            aria-label="Edit tags"
+            title="Tags"
+          >
+            <Tag className="h-4 w-4" />
+          </button>
         </div>
 
         {/* ── Playlist dropdown (portal → escapes overflow/transform clipping) ── */}
@@ -352,6 +419,93 @@ export default function MediaCard({ video }: Props) {
             </div>
           </div>,
           document.body,
+        )}
+
+        {/* ── Tag editor (portal → escapes overflow/transform clipping) ── */}
+        {tagMenuOpen && tagMenuPos && createPortal(
+          <div
+            ref={tagMenuRef}
+            className="fixed z-[300] w-64 overflow-hidden rounded-xl border border-content/10 bg-surface/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
+            style={{ top: tagMenuPos.top, right: tagMenuPos.right }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-content/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-content/50">
+              Tags
+            </div>
+
+            {/* current tags */}
+            {tags && tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+                {tags.map((t) => (
+                  <span key={t} className="flex items-center gap-1 rounded-full bg-primary/15 py-0.5 pl-2 pr-1 text-xs font-medium text-primary">
+                    {t}
+                    <button
+                      onClick={() => removeTag(video.id, t)}
+                      className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-primary/25"
+                      aria-label={`Remove tag ${t}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* add input */}
+            <div className="flex items-center gap-1 p-2">
+              <input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitTag(tagInput); } }}
+                placeholder="Add a tag…"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-content/10 bg-content/5 px-2 text-sm text-content placeholder-content/40 outline-none focus:border-primary/50"
+              />
+              <button
+                onClick={() => commitTag(tagInput)}
+                disabled={!tagInput.trim()}
+                className="flex h-8 shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+            </div>
+
+            {/* previously-used suggestions */}
+            {tagSuggestions.length > 0 && (
+              <div className="border-t border-content/10 px-3 py-2">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-content/40">Previously used</p>
+                <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto scrollbar-thin">
+                  {tagSuggestions.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => commitTag(t)}
+                      className="flex items-center gap-1 rounded-full border border-content/10 bg-content/[0.03] px-2 py-0.5 text-xs font-medium text-content/60 transition hover:border-primary/40 hover:text-primary"
+                    >
+                      <Hash className="h-2.5 w-2.5 opacity-70" />
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+
+        {/* ── Tag pills (bottom of thumbnail; fade out on hover for the metadata rail) ── */}
+        {tags && tags.length > 0 && (
+          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10 flex flex-wrap gap-1 transition-opacity duration-200 group-hover:opacity-0">
+            {tags.slice(0, 3).map((t) => (
+              <span key={t} className="flex items-center gap-0.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white/90 backdrop-blur-sm">
+                <Hash className="h-2.5 w-2.5 opacity-70" />
+                {t}
+              </span>
+            ))}
+            {tags.length > 3 && (
+              <span className="rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold text-white/80 backdrop-blur-sm">
+                +{tags.length - 3}
+              </span>
+            )}
+          </div>
         )}
 
         {/* ── Metadata rail: hidden by default, slides up over the thumbnail on hover ── */}

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 const newId = () => (globalThis.crypto?.randomUUID?.() ?? `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+/** Normalize a raw tag input: trim, strip leading '#', collapse whitespace. */
+export const normalizeTag = (raw) => raw.trim().replace(/^#+/, '').replace(/\s+/g, ' ').trim();
 export const THEMES = [
     {
         id: 'dark',
@@ -124,6 +126,9 @@ export const useStore = create()(persist((set, get) => ({
     favorites: [],
     virtualPlaylists: [],
     collection: { type: 'all' },
+    /* tags — mediaTags rehydrated by persist */
+    mediaTags: {},
+    activeFilterTags: [],
     playbackQueue: [],
     recentVideoIds: [],
     /* legacy */
@@ -147,7 +152,8 @@ export const useStore = create()(persist((set, get) => ({
         playbackQueue: [],
         recentVideoIds: [],
         collection: { type: 'all' },
-        /* NOTE: favorites & virtualPlaylists intentionally preserved across re-scans */
+        activeFilterTags: [],
+        /* NOTE: favorites, virtualPlaylists & mediaTags intentionally preserved across re-scans */
     }),
     /*
      * Navigating to a folder should NOT reset currentVideoId / playerMode —
@@ -334,6 +340,34 @@ export const useStore = create()(persist((set, get) => ({
         }),
     })),
     setCollection: (c) => set({ collection: c, searchQuery: '' }),
+    /* ── custom tags ── */
+    addTag: (mediaId, raw) => set((s) => {
+        const tag = normalizeTag(raw);
+        if (!tag)
+            return {};
+        const cur = s.mediaTags[mediaId] ?? [];
+        if (cur.includes(tag))
+            return {};
+        return { mediaTags: { ...s.mediaTags, [mediaId]: [...cur, tag] } };
+    }),
+    removeTag: (mediaId, tag) => set((s) => {
+        const cur = s.mediaTags[mediaId];
+        if (!cur || !cur.includes(tag))
+            return {};
+        const next = cur.filter((t) => t !== tag);
+        const mediaTags = { ...s.mediaTags };
+        if (next.length)
+            mediaTags[mediaId] = next;
+        else
+            delete mediaTags[mediaId];
+        return { mediaTags };
+    }),
+    toggleFilterTag: (tag) => set((s) => ({
+        activeFilterTags: s.activeFilterTags.includes(tag)
+            ? s.activeFilterTags.filter((t) => t !== tag)
+            : [...s.activeFilterTags, tag],
+    })),
+    clearFilterTags: () => set({ activeFilterTags: [] }),
     setPlaybackQueue: (ids) => {
         const cur = get().playbackQueue;
         if (cur.length === ids.length && cur.every((x, i) => x === ids[i]))
@@ -365,9 +399,10 @@ export const useStore = create()(persist((set, get) => ({
     name: 'localtube:collections',
     storage: createJSONStorage(() => localStorage),
     version: 1,
-    /* Persist ONLY the virtual collections — never the live library/handles. */
+    /* Persist ONLY the virtual collections + tags — never the live library/handles. */
     partialize: (s) => ({
         favorites: s.favorites,
         virtualPlaylists: s.virtualPlaylists,
+        mediaTags: s.mediaTags,
     }),
 }));

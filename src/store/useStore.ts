@@ -30,6 +30,9 @@ export type CollectionFilter =
 const newId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
 
+/** Normalize a raw tag input: trim, strip leading '#', collapse whitespace. */
+export const normalizeTag = (raw: string) => raw.trim().replace(/^#+/, '').replace(/\s+/g, ' ').trim();
+
 export interface VideoMeta {
   thumbnailUrl?: string;
   duration?: number;
@@ -256,6 +259,10 @@ interface StoreState {
   virtualPlaylists: VirtualPlaylist[];
   collection: CollectionFilter;   // which virtual view the grid shows
 
+  /* custom tags (mediaTags persisted; activeFilterTags is a transient view filter) */
+  mediaTags: Record<string, string[]>;  // mediaId → tags
+  activeFilterTags: string[];
+
   /*
    * Ordered list of video ids that represent the CURRENT filtered view.
    * App.tsx keeps this in sync with its `visible` list so the player can do
@@ -311,6 +318,12 @@ interface StoreState {
   togglePlaylistItem: (playlistId: string, mediaId: string) => void;
   setCollection: (c: CollectionFilter) => void;
 
+  /* custom tag actions */
+  addTag: (mediaId: string, tag: string) => void;
+  removeTag: (mediaId: string, tag: string) => void;
+  toggleFilterTag: (tag: string) => void;
+  clearFilterTags: () => void;
+
   /* queue / recent */
   setPlaybackQueue: (ids: string[]) => void;
   getNextVideoId: () => string | null;
@@ -356,6 +369,10 @@ export const useStore = create<StoreState>()(
   virtualPlaylists: [],
   collection: { type: 'all' },
 
+  /* tags — mediaTags rehydrated by persist */
+  mediaTags: {},
+  activeFilterTags: [],
+
   playbackQueue: [],
   recentVideoIds: [],
 
@@ -382,7 +399,8 @@ export const useStore = create<StoreState>()(
       playbackQueue: [],
       recentVideoIds: [],
       collection: { type: 'all' },
-      /* NOTE: favorites & virtualPlaylists intentionally preserved across re-scans */
+      activeFilterTags: [],
+      /* NOTE: favorites, virtualPlaylists & mediaTags intentionally preserved across re-scans */
     }),
 
   /*
@@ -601,6 +619,36 @@ export const useStore = create<StoreState>()(
 
   setCollection: (c) => set({ collection: c, searchQuery: '' }),
 
+  /* ── custom tags ── */
+  addTag: (mediaId, raw) =>
+    set((s) => {
+      const tag = normalizeTag(raw);
+      if (!tag) return {};
+      const cur = s.mediaTags[mediaId] ?? [];
+      if (cur.includes(tag)) return {};
+      return { mediaTags: { ...s.mediaTags, [mediaId]: [...cur, tag] } };
+    }),
+
+  removeTag: (mediaId, tag) =>
+    set((s) => {
+      const cur = s.mediaTags[mediaId];
+      if (!cur || !cur.includes(tag)) return {};
+      const next = cur.filter((t) => t !== tag);
+      const mediaTags = { ...s.mediaTags };
+      if (next.length) mediaTags[mediaId] = next;
+      else delete mediaTags[mediaId];
+      return { mediaTags };
+    }),
+
+  toggleFilterTag: (tag) =>
+    set((s) => ({
+      activeFilterTags: s.activeFilterTags.includes(tag)
+        ? s.activeFilterTags.filter((t) => t !== tag)
+        : [...s.activeFilterTags, tag],
+    })),
+
+  clearFilterTags: () => set({ activeFilterTags: [] }),
+
   setPlaybackQueue: (ids) => {
     const cur = get().playbackQueue;
     if (cur.length === ids.length && cur.every((x, i) => x === ids[i])) return;
@@ -629,10 +677,11 @@ export const useStore = create<StoreState>()(
       name: 'localtube:collections',
       storage: createJSONStorage(() => localStorage),
       version: 1,
-      /* Persist ONLY the virtual collections — never the live library/handles. */
+      /* Persist ONLY the virtual collections + tags — never the live library/handles. */
       partialize: (s) => ({
         favorites: s.favorites,
         virtualPlaylists: s.virtualPlaylists,
+        mediaTags: s.mediaTags,
       }),
     },
   ),

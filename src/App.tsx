@@ -9,6 +9,7 @@ import VideoGrid from './components/VideoGrid';
 import Player from './components/Player';
 import ImageViewer from './components/ImageViewer';
 import MediaViewer from './components/MediaViewer';
+import FilterBar from './components/FilterBar';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -56,6 +57,8 @@ export default function App() {
   const collection = useStore((s) => s.collection);
   const favorites = useStore((s) => s.favorites);
   const virtualPlaylists = useStore((s) => s.virtualPlaylists);
+  const mediaTags = useStore((s) => s.mediaTags);
+  const activeFilterTags = useStore((s) => s.activeFilterTags);
 
   /*
    * Visible list rules:
@@ -71,6 +74,11 @@ export default function App() {
       if (q && !v.title.toLowerCase().includes(q)) return false;
       if (homeFilter === 'videos' && v.mediaType !== 'video') return false;
       if (homeFilter === 'images' && v.mediaType !== 'image') return false;
+      /* tag filter — item must carry ALL active tags (intersection) */
+      if (activeFilterTags.length) {
+        const t = mediaTags[v.id] ?? [];
+        if (!activeFilterTags.every((tag) => t.includes(tag))) return false;
+      }
       return true;
     };
 
@@ -102,7 +110,7 @@ export default function App() {
       }
       return matchesSearchAndType(v);
     });
-  }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists]);
+  }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists, mediaTags, activeFilterTags]);
 
   /*
    * Keep the player's playback queue aligned with what the user is browsing,
@@ -131,6 +139,7 @@ export default function App() {
                 <MediaViewer />
               </div>
             )}
+            <FilterBar />
             <VideoGrid videos={visible} />
           </main>
         </div>
