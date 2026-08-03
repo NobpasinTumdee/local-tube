@@ -3,10 +3,14 @@ import {
   useWebRTCStore,
   registerRtcTeardown,
   type SessionRole,
+  type SignalingMode,
 } from '../store/useWebRTCStore';
 import {
   AUTH_TIMEOUT_MS,
+  DEFAULT_ICE_SERVERS,
   MAX_AUTH_ATTEMPTS,
+  MAX_ICE_CANDIDATES,
+  MAX_INCOMING_TRACKS,
   PROTOCOL_VERSION,
   assertSecureContext,
   clearRoomKeyCache,
@@ -16,6 +20,7 @@ import {
   encodeMessage,
   frameChunk,
   isPreAuthMessage,
+  isValidNegotiationId,
   isValidNonce,
   makeNonce,
   negotiateChunkSize,
@@ -27,6 +32,8 @@ import {
   sanitizeFilename,
   timingSafeEqual,
   validateFileOffer,
+  validateIceCandidate,
+  validateSdp,
   type WireMessage,
 } from './p2pProtocol';
 
@@ -94,6 +101,26 @@ interface IncomingTransfer {
   lastCommit: number;
 }
 
+/**
+ * One in-band-relayed media negotiation. Unlike a PeerJS MediaConnection
+ * this is a bare RTCPeerConnection we drive ourselves — its offer, answer
+ * and candidates travel over the DataChannel rather than the broker.
+ */
+interface RelayState {
+  pc: RTCPeerConnection;
+  /** Matches the `nid` on the wire; stale traffic is discarded by it. */
+  nid: number;
+  /** 'sender' = we are broadcasting; 'receiver' = we are watching. */
+  role: 'sender' | 'receiver';
+  /** True once setRemoteDescription has resolved — until then ICE queues. */
+  remoteReady: boolean;
+  /** Candidates that arrived before the remote description was applied. */
+  pendingIce: RTCIceCandidateInit[];
+  /** Inbound candidate count, for the anti-abuse cap. */
+  iceIn: number;
+  delivered: boolean;
+}
+
 interface ConnState {
   conn: DataConnection;
   role: SessionRole;
@@ -116,11 +143,17 @@ interface ConnState {
   mediaWatchdog: ReturnType<typeof setTimeout> | null;
   /** Guest side: how many re-call requests we've sent for this broadcast. */
   mediaRetries: number;
+  /** In-band relay negotiation with this peer, if any (one at a time). */
+  relay: RelayState | null;
+  /** Allocator for {@link RelayState.nid}. */
+  nextNid: number;
 }
 
 interface Session {
   peer: Peer;
   role: SessionRole;
+  /** Read once at session start; see the type's doc comment. */
+  signalingMode: SignalingMode;
   roomId: string;
   roomKey: CryptoKey;
   displayName: string;
@@ -163,6 +196,11 @@ export interface StartSessionOptions {
    * room id and your IP. It never sees file bytes or the password.
    */
   signaling?: { host: string; port: number; path?: string; secure?: boolean };
+  /**
+   * How live broadcasts negotiate their media. Defaults to the store's
+   * setting, which defaults to the in-band relay (works on any broker).
+   */
+  signalingMode?: SignalingMode;
   /** PeerJS console verbosity (0 silent … 3 all). Diagnostics only. */
   debug?: number;
 }
@@ -208,9 +246,12 @@ export async function startSession(opts: StartSessionOptions): Promise<void> {
       : {}),
   });
 
+  const signalingMode = opts.signalingMode ?? s.signalingMode;
+
   session = {
     peer,
     role: opts.role,
+    signalingMode,
     roomId: opts.roomId,
     roomKey,
     displayName: sanitizeDisplayName(opts.displayName),
@@ -237,6 +278,19 @@ export async function startSession(opts: StartSessionOptions): Promise<void> {
       store().sessionEstablished(id);
       log('info', `Local peer id: ${id}`);
       log('info', opts.role === 'host' ? `Room ${opts.roomId} opened.` : `Dialling room ${opts.roomId}…`);
+      log(
+        'info',
+        signalingMode === 'default-relay'
+          ? 'Live video mode: in-band relay (media signaling travels over the encrypted data channel).'
+          : 'Live video mode: native PeerJS routing (media signaling travels through the signaling server).',
+      );
+      if (signalingMode === 'self-hosted-server' && !opts.signaling) {
+        log(
+          'warn',
+          'Native routing is selected but no self-hosted signaling server is configured — ' +
+            'the public broker does not relay media offers, so broadcasts will not reach viewers.',
+        );
+      }
       resolve();
     };
     const onError = (err: Error) => {
@@ -368,6 +422,29 @@ export function destroySession(): void {
   for (const st of s.conns.values()) {
     if (st.authTimer) clearTimeout(st.authTimer);
     if (st.mediaWatchdog) clearTimeout(st.mediaWatchdog);
+    /* Relayed media rides its own RTCPeerConnection — closing the data
+     * channel does not close it, so it has to be closed by hand. */
+    if (st.relay) {
+      const { pc } = st.relay;
+      st.relay = null;
+      pc.onicecandidate = null;
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      /* Receiver side: the decoders are ours to stop. On the sender side
+       * these are the shared capture tracks, stopped once in step 3. */
+      for (const receiver of pc.getReceivers()) {
+        try {
+          receiver.track?.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        pc.close();
+      } catch {
+        /* ignore */
+      }
+    }
     for (const out of st.outgoing.values()) out.cancelled = true;
     /* Drop half-received buffers so the bytes are collectable immediately. */
     for (const inc of st.incoming.values()) inc.parts.length = 0;
@@ -457,6 +534,8 @@ function setupConnection(conn: DataConnection, role: SessionRole): void {
     broadcastTitle: 'Live broadcast',
     mediaWatchdog: null,
     mediaRetries: 0,
+    relay: null,
+    nextNid: 1,
   };
   session.conns.set(conn.peer, st);
 
@@ -594,7 +673,18 @@ function handleData(st: ConnState, data: unknown): void {
       break;
     case 'bcast-stop':
       clearMediaWatchdog(st);
+      closeRelay(st);
       endIncomingBroadcast(st.conn.peer);
+      break;
+    /* ── in-band media signaling (default-relay mode) ── */
+    case 'media-offer':
+      onMediaOffer(st, msg);
+      break;
+    case 'media-answer':
+      onMediaAnswer(st, msg);
+      break;
+    case 'media-ice':
+      onMediaIce(st, msg);
       break;
     case 'bye':
       dropConnection(st, 'Peer left');
@@ -753,6 +843,7 @@ function handleConnectionClosed(st: ConnState, reason?: string): void {
 
   if (st.authTimer) clearTimeout(st.authTimer);
   clearMediaWatchdog(st);
+  closeRelay(st);
 
   /* Fail every transfer that was still moving, in both directions. */
   const transfers = store().transferProgress;
@@ -1158,6 +1249,14 @@ export function startBroadcast(stream: MediaStream, title: string): void {
       'The player produced an empty stream. Make sure the video is actually playing, then go live again.',
     );
   }
+  /* Same failure mode, one step later: a stream whose tracks have already
+   * ended (a previous broadcast stopped them) still negotiates happily and
+   * still delivers nothing. Re-capture instead of going live into a void. */
+  if (tracks.every((t) => t.readyState === 'ended')) {
+    throw new Error(
+      'That captured stream has already ended. Reopen the video in the player, then go live again.',
+    );
+  }
 
   session.localStream = stream;
   const safeTitle = sanitizeDisplayName(title) || 'Live';
@@ -1181,14 +1280,43 @@ export function startBroadcast(stream: MediaStream, title: string): void {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────
+ *  DUAL-MODE BROADCAST ROUTER
+ * ─────────────────────────────────────────────────────────────
+ *  Both branches end at the same place: one RTCPeerConnection carrying
+ *  DTLS/SRTP-encrypted tracks directly between the two browsers. The only
+ *  difference is which path the *offer* takes to get there.
+ *
+ *    Branch A · self-hosted-server → peer.call()  → offer via the broker
+ *    Branch B · default-relay      → in-band SDP  → offer via DataChannel
+ *
+ *  B is the default because A only works on a signaling server that
+ *  actually relays media offers — the public PeerJS broker does not.
+ * ───────────────────────────────────────────────────────────── */
+
 function callPeer(st: ConnState, title: string): void {
+  if (!session?.localStream) return;
+
+  /* Announce over the DataChannel first so the guest's lobby can show
+   * "connecting to stream…" while ICE does its thing. Both branches. */
+  send(st, { t: 'bcast-start', title });
+
+  if (session.signalingMode === 'default-relay') {
+    void startRelayOffer(st, title).catch((err) => {
+      log('warn', `Could not start the relayed stream to ${st.name}: ${(err as Error).message}`);
+      closeRelay(st);
+    });
+    return;
+  }
+  nativeCallPeer(st);
+}
+
+/** Branch A — PeerJS's own media routing. */
+function nativeCallPeer(st: ConnState): void {
   if (!session?.localStream) return;
   if (!session.peer.open || session.peer.disconnected) {
     log('warn', `Signaling link is down — ${st.name} will not receive the call until it recovers.`);
   }
-  /* Announce over the DataChannel first so the guest's lobby can show
-   * "connecting to stream…" while ICE does its thing. */
-  send(st, { t: 'bcast-start', title });
   try {
     const call = session.peer.call(st.conn.peer, session.localStream);
     session.calls.set(st.conn.peer, call);
@@ -1207,16 +1335,22 @@ function callPeer(st: ConnState, title: string): void {
 export function stopBroadcast(): void {
   if (!session) return;
 
-  for (const [peerId, call] of session.calls) {
+  /* Branch A — hang up every PeerJS media call. */
+  for (const call of session.calls.values()) {
     try {
       call.close();
     } catch {
       /* ignore */
     }
-    const st = session.conns.get(peerId);
-    if (st?.authenticated) send(st, { t: 'bcast-stop' });
   }
   session.calls.clear();
+
+  /* Branch B — close every relayed peer connection, and tell every viewer
+   * the broadcast is over regardless of which branch carried it. */
+  for (const st of session.conns.values()) {
+    if (st.relay?.role === 'sender') closeRelay(st);
+    if (st.authenticated) send(st, { t: 'bcast-stop' });
+  }
 
   if (session.localStream) {
     /* Stops the capture, not the user's playback. */
@@ -1232,6 +1366,290 @@ export function stopBroadcast(): void {
 
   store().setBroadcast(null);
   log('info', 'Broadcast ended.');
+}
+
+/* ─────────────────────────────────────────────────────────────
+ *  BRANCH B — IN-BAND DATACHANNEL SDP RELAY
+ * ─────────────────────────────────────────────────────────────
+ *  The broker introduces the two browsers and is then bypassed entirely:
+ *  the media offer, the answer and every ICE candidate ride the DataChannel
+ *  that the password handshake already established.
+ *
+ *  Why this is not a security regression
+ *  ────────────────────────────────────
+ *  • The messages are post-auth (see PRE_AUTH_TYPES) — a stranger who
+ *    guessed the room id has no channel to send them on.
+ *  • The offer is sendonly and we never add a local track to a *receiving*
+ *    connection, so answering can never turn on a camera or a microphone.
+ *  • SDP and candidates are bounds-checked before they reach the browser's
+ *    parser, and inbound candidates are capped.
+ *  • Nothing here can request data: a relayed offer carries media the
+ *    broadcaster chose to push, exactly like the branch it replaces.
+ *
+ *  It is also strictly *more* private than Branch A: the broker sees the
+ *  media offer in native routing, and sees nothing at all here.
+ * ───────────────────────────────────────────────────────────── */
+
+/**
+ * ICE configuration for a relayed connection. Prefers whatever the live
+ * PeerJS instance is already using so both branches traverse NAT
+ * identically; falls back to plain STUN.
+ */
+function relayIceConfig(): RTCConfiguration {
+  const fromPeer = (session?.peer as unknown as { options?: { config?: RTCConfiguration } })?.options
+    ?.config;
+  if (fromPeer?.iceServers?.length) return fromPeer;
+  return { iceServers: DEFAULT_ICE_SERVERS };
+}
+
+/** Wires the shared handlers both directions of a relay need. */
+function attachRelayHandlers(st: ConnState, relay: RelayState): void {
+  const { pc, nid } = relay;
+
+  pc.onicecandidate = (ev) => {
+    /* A null candidate is the end-of-candidates marker; the remote side
+     * infers it from the SDP, so there is nothing to forward. */
+    if (!ev.candidate || st.relay !== relay) return;
+    send(st, {
+      t: 'media-ice',
+      nid,
+      candidate: ev.candidate.candidate,
+      sdpMid: ev.candidate.sdpMid,
+      sdpMLineIndex: ev.candidate.sdpMLineIndex,
+      usernameFragment: ev.candidate.usernameFragment,
+    });
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (st.relay !== relay) return;
+    switch (pc.connectionState) {
+      case 'connected':
+        log('info', `Relayed media connection with ${st.name} is up.`);
+        break;
+      case 'failed':
+        log('warn', `Relayed media connection with ${st.name} failed (no network path found).`);
+        if (relay.role === 'receiver') {
+          /* Let the watchdog ask for a fresh offer rather than sitting on
+           * a dead connection forever. */
+          closeRelay(st);
+          endIncomingBroadcast(st.conn.peer);
+        } else {
+          closeRelay(st);
+        }
+        break;
+      case 'closed':
+        if (relay.role === 'receiver') endIncomingBroadcast(st.conn.peer);
+        break;
+      default:
+        break;
+    }
+  };
+}
+
+/** Applies candidates that arrived before the remote description did. */
+async function flushPendingIce(relay: RelayState): Promise<void> {
+  const queued = relay.pendingIce.splice(0);
+  for (const init of queued) {
+    try {
+      await relay.pc.addIceCandidate(init);
+    } catch {
+      /* A single unusable candidate is normal — ICE tries the rest. */
+    }
+  }
+}
+
+/* ── sender side (host) ────────────────────────────────────── */
+
+/**
+ * Builds a sendonly RTCPeerConnection for `st` and pushes its offer down
+ * the DataChannel. Resolves once the offer is on the wire; the connection
+ * completes asynchronously as candidates trickle.
+ */
+async function startRelayOffer(st: ConnState, title: string): Promise<void> {
+  if (!session?.localStream) return;
+  const stream = session.localStream;
+
+  /* Replace any previous negotiation with this peer — two half-open
+   * connections would both try to deliver the same stream. */
+  closeRelay(st);
+
+  const relay: RelayState = {
+    pc: new RTCPeerConnection(relayIceConfig()),
+    nid: st.nextNid++,
+    role: 'sender',
+    remoteReady: false,
+    pendingIce: [],
+    iceIn: 0,
+    delivered: false,
+  };
+  st.relay = relay;
+  attachRelayHandlers(st, relay);
+
+  for (const track of stream.getTracks()) {
+    relay.pc.addTrack(track, stream);
+  }
+
+  const offer = await relay.pc.createOffer();
+  /* The peer may have gone away while we were building the offer. */
+  if (st.relay !== relay || !session) return;
+  await relay.pc.setLocalDescription(offer);
+  if (st.relay !== relay || !session) return;
+
+  const sdp = relay.pc.localDescription?.sdp;
+  if (!sdp) throw new Error('The browser produced no local description');
+
+  send(st, { t: 'media-offer', nid: relay.nid, sdp, title });
+  store().addViewer(st.conn.peer);
+  log('info', `Sent ${st.name} a relayed media offer (negotiation ${relay.nid}).`);
+}
+
+function onMediaAnswer(st: ConnState, msg: Extract<WireMessage, { t: 'media-answer' }>): void {
+  if (!isValidNegotiationId(msg.nid)) throw new Error('Malformed negotiation id');
+  const relay = st.relay;
+  /* Stale answer for a negotiation we already replaced — ignore quietly. */
+  if (!relay || relay.role !== 'sender' || relay.nid !== msg.nid) return;
+  if (relay.remoteReady) throw new Error('Duplicate media answer');
+
+  const problem = validateSdp(msg.sdp, 'answer');
+  if (problem) throw new Error(problem);
+
+  void (async () => {
+    try {
+      await relay.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
+      if (st.relay !== relay) return;
+      relay.remoteReady = true;
+      await flushPendingIce(relay);
+      log('info', `${st.name} accepted the relayed stream — negotiating a network path…`);
+    } catch (err) {
+      log('warn', `${st.name}'s answer could not be applied: ${(err as Error).message}`);
+      closeRelay(st);
+    }
+  })();
+}
+
+/* ── receiver side (guest) ─────────────────────────────────── */
+
+/**
+ * Answers a relayed offer. The answer is generated from the offer alone —
+ * we add no tracks and no transceivers of our own, so the resulting
+ * connection is receive-only by construction.
+ */
+function onMediaOffer(st: ConnState, msg: Extract<WireMessage, { t: 'media-offer' }>): void {
+  if (!isValidNegotiationId(msg.nid)) throw new Error('Malformed negotiation id');
+  const problem = validateSdp(msg.sdp, 'offer');
+  if (problem) throw new Error(problem);
+
+  /* A re-offer supersedes whatever we had — the host sends one when a
+   * viewer reports the stream never arrived. */
+  closeRelay(st);
+  st.broadcastTitle = sanitizeDisplayName(msg.title) || 'Live broadcast';
+
+  const relay: RelayState = {
+    pc: new RTCPeerConnection(relayIceConfig()),
+    nid: msg.nid,
+    role: 'receiver',
+    remoteReady: false,
+    pendingIce: [],
+    iceIn: 0,
+    delivered: false,
+  };
+  st.relay = relay;
+  attachRelayHandlers(st, relay);
+
+  relay.pc.ontrack = (ev) => {
+    if (st.relay !== relay) return;
+    /* A peer cannot make us hold an unbounded number of decoders. */
+    if (relay.pc.getReceivers().length > MAX_INCOMING_TRACKS) {
+      log('danger', `${st.name} offered more than ${MAX_INCOMING_TRACKS} tracks — refusing the stream.`);
+      closeRelay(st);
+      return;
+    }
+    const stream = ev.streams[0] ?? new MediaStream([ev.track]);
+    if (relay.delivered) {
+      /* Second track of the same broadcast (audio after video): re-commit
+       * so the viewer picks it up instead of staying silent. */
+      if (store().activeStream === stream) store().setActiveStream(stream, incomingMeta(st));
+      return;
+    }
+    if (commitIncomingStream(st, stream, 'relayed ontrack')) relay.delivered = true;
+  };
+
+  void (async () => {
+    try {
+      await relay.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+      if (st.relay !== relay || !session) return;
+      relay.remoteReady = true;
+      await flushPendingIce(relay);
+
+      const answer = await relay.pc.createAnswer();
+      if (st.relay !== relay || !session) return;
+      await relay.pc.setLocalDescription(answer);
+      if (st.relay !== relay || !session) return;
+
+      const sdp = relay.pc.localDescription?.sdp;
+      if (!sdp) throw new Error('The browser produced no local description');
+      send(st, { t: 'media-answer', nid: relay.nid, sdp });
+      log('info', `Answered ${st.name}'s relayed offer (negotiation ${relay.nid}) — negotiating media…`);
+    } catch (err) {
+      log('danger', `Could not answer ${st.name}'s relayed offer: ${(err as Error).message}`);
+      closeRelay(st);
+    }
+  })();
+}
+
+/* ── shared ────────────────────────────────────────────────── */
+
+function onMediaIce(st: ConnState, msg: Extract<WireMessage, { t: 'media-ice' }>): void {
+  if (!isValidNegotiationId(msg.nid)) throw new Error('Malformed negotiation id');
+  const relay = st.relay;
+  /* Candidates for a superseded negotiation are expected in-flight noise. */
+  if (!relay || relay.nid !== msg.nid) return;
+
+  const problem = validateIceCandidate(msg);
+  if (problem) throw new Error(problem);
+
+  if (++relay.iceIn > MAX_ICE_CANDIDATES) {
+    throw new Error('Too many ICE candidates');
+  }
+
+  const init: RTCIceCandidateInit = {
+    candidate: msg.candidate,
+    sdpMid: msg.sdpMid,
+    sdpMLineIndex: msg.sdpMLineIndex,
+    ...(typeof msg.usernameFragment === 'string' ? { usernameFragment: msg.usernameFragment } : {}),
+  };
+
+  /* Candidates routinely beat the description they belong to — queue them
+   * rather than letting addIceCandidate reject. */
+  if (!relay.remoteReady) {
+    relay.pendingIce.push(init);
+    return;
+  }
+  relay.pc.addIceCandidate(init).catch(() => {
+    /* One bad candidate does not sink a negotiation. */
+  });
+}
+
+/**
+ * Tears down the relay for one peer. Never stops the local capture: the
+ * sender's tracks belong to session.localStream and are shared with the
+ * user's own playback, so only stopBroadcast/destroySession stop them.
+ */
+function closeRelay(st: ConnState): void {
+  const relay = st.relay;
+  if (!relay) return;
+  st.relay = null;
+
+  relay.pc.onicecandidate = null;
+  relay.pc.ontrack = null;
+  relay.pc.onconnectionstatechange = null;
+  relay.pendingIce.length = 0;
+  try {
+    relay.pc.close();
+  } catch {
+    /* ignore */
+  }
+  if (relay.role === 'sender') store().removeViewer(st.conn.peer);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -1268,6 +1686,13 @@ const STREAM_FALLBACK_MS = 2500;
  *  So the guest arms a watchdog when a broadcast is announced and asks
  *  for a re-call over the DataChannel if no media materialises. */
 const MEDIA_WATCHDOG_MS = 4000;
+/**
+ * The in-band relay cannot lose the offer — it rides the same ordered,
+ * reliable channel as the announcement that armed this watchdog. So the
+ * only thing left to wait for is ICE, which deserves considerably more
+ * than four seconds before we tear a working negotiation down and retry.
+ */
+const RELAY_WATCHDOG_MS = 12_000;
 const MAX_MEDIA_RETRIES = 4;
 
 function clearMediaWatchdog(st: ConnState): void {
@@ -1279,6 +1704,7 @@ function clearMediaWatchdog(st: ConnState): void {
 
 function armMediaWatchdog(st: ConnState): void {
   clearMediaWatchdog(st);
+  const delay = session?.signalingMode === 'default-relay' ? RELAY_WATCHDOG_MS : MEDIA_WATCHDOG_MS;
   st.mediaWatchdog = setTimeout(() => {
     st.mediaWatchdog = null;
     if (!session) return;
@@ -1290,17 +1716,22 @@ function armMediaWatchdog(st: ConnState): void {
     if (st.mediaRetries >= MAX_MEDIA_RETRIES) {
       log('danger', `Gave up waiting for ${st.name}'s stream after ${MAX_MEDIA_RETRIES} attempts.`);
       store().setError(
-        `${st.name}'s video invitation never arrived. The public PeerJS broker relays file transfers but does not reliably relay live-video invitations. ` +
-          `To use Live Broadcast, both of you must set a self-hosted signaling server under "Advanced — signaling server" (run: npx peer --port 9000).`,
+        session.signalingMode === 'default-relay'
+          ? `${st.name}'s stream was offered but no direct network path could be established. ` +
+              `This is usually a restrictive NAT or firewall on one side. Try both browsers on the same network, ` +
+              `or configure a TURN server.`
+          : `${st.name}'s video invitation never arrived. Native PeerJS routing sends it through the signaling ` +
+              `server, and the public broker does not relay media invitations. Switch "Live video" to In-Band Relay ` +
+              `(no server needed), or run npx peer --port 9000 and point both browsers at it.`,
       );
       return;
     }
 
     st.mediaRetries++;
-    log('warn', `No media from ${st.name} yet — requesting a re-call (attempt ${st.mediaRetries}).`);
+    log('warn', `No media from ${st.name} yet — requesting a re-offer (attempt ${st.mediaRetries}).`);
     send(st, { t: 'bcast-request', attempt: st.mediaRetries });
     armMediaWatchdog(st);
-  }, MEDIA_WATCHDOG_MS);
+  }, delay);
 }
 
 /** Host side: a viewer says our offer never arrived, so place it again. */
@@ -1330,42 +1761,56 @@ function onBroadcastRequest(st: ConnState, attempt: number): void {
   callPeer(st, store().broadcastTitle ?? st.broadcastTitle);
 }
 
-function acceptBroadcastCall(call: MediaConnection, st: ConnState): void {
-  if (!session) return;
-
-  const meta = () => ({
-    peerId: call.peer,
+/** Descriptor for whatever `st` is currently broadcasting to us. */
+function incomingMeta(st: ConnState) {
+  return {
+    peerId: st.conn.peer,
     peerName: st.name,
     title: st.broadcastTitle,
     startedAt: Date.now(),
+  };
+}
+
+/**
+ * Hands a received stream to the store, whichever branch produced it.
+ * Returns false if the stream was unusable, so the caller can keep
+ * waiting for a real one instead of latching onto an empty MediaStream.
+ */
+function commitIncomingStream(st: ConnState, stream: MediaStream, how: string): boolean {
+  if (!session) return false;
+  if (stream.getTracks().length === 0) {
+    log('warn', `${st.name}'s stream arrived with no tracks — ignoring (${how}).`);
+    return false;
+  }
+
+  /* Media landed — stop asking the host to re-send. */
+  clearMediaWatchdog(st);
+  st.mediaRetries = 0;
+  store().setActiveStream(stream, incomingMeta(st));
+  log(
+    'info',
+    `Watching ${st.name}'s broadcast — ${stream.getVideoTracks().length} video / ` +
+      `${stream.getAudioTracks().length} audio track(s) [${how}].`,
+  );
+
+  /* Audio often negotiates a beat after video; re-commit so the viewer
+   * picks up the extra track instead of staying silent forever. */
+  stream.addEventListener('addtrack', () => {
+    if (store().activeStream === stream) store().setActiveStream(stream, incomingMeta(st));
   });
+  stream.addEventListener('removetrack', () => {
+    if (stream.getTracks().length === 0) endIncomingBroadcast(st.conn.peer);
+  });
+  return true;
+}
+
+function acceptBroadcastCall(call: MediaConnection, st: ConnState): void {
+  if (!session) return;
 
   let delivered = false;
   const deliver = (stream: MediaStream, how: string) => {
-    if (delivered || !session) return;
-    if (stream.getTracks().length === 0) {
-      log('warn', `${st.name}'s stream arrived with no tracks — ignoring (${how}).`);
-      return;
-    }
-    delivered = true;
-    /* Media landed — stop asking the host to re-call. */
-    clearMediaWatchdog(st);
-    st.mediaRetries = 0;
-    store().setActiveStream(stream, meta());
-    log(
-      'info',
-      `Watching ${st.name}'s broadcast — ${stream.getVideoTracks().length} video / ` +
-        `${stream.getAudioTracks().length} audio track(s) [${how}].`,
-    );
-
-    /* Audio often negotiates a beat after video; re-commit so the viewer
-     * picks up the extra track instead of staying silent forever. */
-    stream.addEventListener('addtrack', () => {
-      if (store().activeStream === stream) store().setActiveStream(stream, meta());
-    });
-    stream.addEventListener('removetrack', () => {
-      if (stream.getTracks().length === 0) endIncomingBroadcast(call.peer);
-    });
+    if (delivered) return;
+    if (commitIncomingStream(st, stream, how)) delivered = true;
   };
 
   /* 1 ─ Listen first. */
@@ -1423,6 +1868,12 @@ function endIncomingBroadcast(peerId: string): void {
   }
   store().clearIncomingBroadcast();
   if (session?.incomingCall?.peer === peerId) session.incomingCall = null;
+
+  /* Branch B leaves a live RTCPeerConnection behind that nothing else
+   * owns — release it with the stream it was carrying. */
+  const st = session?.conns.get(peerId);
+  if (st?.relay?.role === 'receiver') closeRelay(st);
+
   log('info', 'The broadcast ended.');
 }
 

@@ -34,10 +34,13 @@ export const useWebRTCStore = create()((set, get) => ({
     ...CLEAN_SLATE,
     displayName: 'LocalTube user',
     preferredRole: 'host',
+    /* Works everywhere with no setup — see the SignalingMode doc comment. */
+    signalingMode: 'default-relay',
     lastError: null,
     events: [],
     killedAt: null,
     setStatus: (status) => set({ status }),
+    setSignalingMode: (signalingMode) => set({ signalingMode }),
     beginSession: ({ role, roomId, password, displayName }) => set({
         ...CLEAN_SLATE,
         status: 'connecting',
@@ -172,6 +175,8 @@ export const useWebRTCStore = create()((set, get) => ({
             displayName: s.displayName,
             /* Remember which side the user was on so a retry lands on the same tab. */
             preferredRole: s.role ?? s.preferredRole,
+            /* A transport preference, not a session artefact — keep it. */
+            signalingMode: s.signalingMode,
             lastError: s.lastError,
             killedAt: Date.now(),
             events: [

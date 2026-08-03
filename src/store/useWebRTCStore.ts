@@ -23,6 +23,25 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'br
 /** 'host' owns the room id on the broker; 'guest' dialled into it. */
 export type SessionRole = 'host' | 'guest';
 
+/**
+ * How a live broadcast negotiates its media connection.
+ *
+ * 'default-relay' (the default)
+ *   Tunnels the media SDP offer/answer and the ICE candidates through the
+ *   already-open, authenticated DataChannel. Works on the public PeerJS
+ *   broker, which relays data offers but silently drops media offers —
+ *   the reason broadcasting used to need a self-hosted server.
+ *
+ * 'self-hosted-server'
+ *   Native PeerJS media routing (`peer.call`), where the media offer goes
+ *   through the signaling server. Requires a server that actually relays
+ *   it, i.e. your own (`npx peer --port 9000`).
+ *
+ * Both produce the same thing — one RTCPeerConnection carrying the same
+ * DTLS/SRTP-encrypted tracks. Only the path the *offer* takes differs.
+ */
+export type SignalingMode = 'default-relay' | 'self-hosted-server';
+
 export interface PeerInfo {
   /** Full PeerJS id (namespaced). */
   id: string;
@@ -101,6 +120,13 @@ interface WebRTCState {
   displayName: string;
   /** Survives teardown so a retry after a rejection reopens the right tab. */
   preferredRole: SessionRole;
+  /**
+   * Broadcast transport preference. A setting, not session state — it
+   * survives the kill switch so the user doesn't have to re-pick it, and
+   * it is read once by startSession (changing it mid-session does nothing
+   * until the next broadcast is started).
+   */
+  signalingMode: SignalingMode;
 
   peers: PeerInfo[];
 
@@ -134,6 +160,7 @@ interface WebRTCState {
 
   /* ── actions ── */
   setStatus: (status: ConnectionStatus) => void;
+  setSignalingMode: (mode: SignalingMode) => void;
   beginSession: (args: { role: SessionRole; roomId: string; password: string; displayName: string }) => void;
   sessionEstablished: (localPeerId: string) => void;
 
@@ -204,11 +231,15 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
   ...CLEAN_SLATE,
   displayName: 'LocalTube user',
   preferredRole: 'host',
+  /* Works everywhere with no setup — see the SignalingMode doc comment. */
+  signalingMode: 'default-relay',
   lastError: null,
   events: [],
   killedAt: null,
 
   setStatus: (status) => set({ status }),
+
+  setSignalingMode: (signalingMode) => set({ signalingMode }),
 
   beginSession: ({ role, roomId, password, displayName }) =>
     set({
@@ -375,6 +406,8 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
       displayName: s.displayName,
       /* Remember which side the user was on so a retry lands on the same tab. */
       preferredRole: s.role ?? s.preferredRole,
+      /* A transport preference, not a session artefact — keep it. */
+      signalingMode: s.signalingMode,
       lastError: s.lastError,
       killedAt: Date.now(),
       events: [

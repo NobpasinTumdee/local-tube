@@ -75,8 +75,9 @@ A direct, end-to-end-encrypted link between two browsers — no upload, no relay
 | 🔐 | **Password-protected rooms** | Pick a 4–10 **digit Room ID** and a passphrase. Both sides prove they know it before anything else is permitted. |
 | 📤 | **Selective file push** | Tick specific items from *your* library and send them. The receiver must **accept** before a single byte is buffered. |
 | 📡 | **Live Broadcast** | `captureStream()` on the video you're watching is streamed in real time to verified peers. They see **frames, not the file** — no copy lands on their disk. |
+| ⚡ | **Dual-mode signaling** | Broadcasting works on the **public broker with zero setup** by tunnelling the media invitation through the encrypted DataChannel — or via a self-hosted PeerServer if you prefer. [Details ↓](#broadcasting-dual-mode-media-signaling) |
 | 🛋️ | **Watch Party Lobby** | A room UI with peer list, verification badges, and a waiting state that becomes the player the moment the host goes live. |
-| 🧯 | **Kill Switch** | `peer.destroy()` + every `conn.close()` + every `track.stop()` + `revokeObjectURL()` on all received blobs, in one click. |
+| 🧯 | **Kill Switch** | `peer.destroy()` + every `conn.close()` + every native `RTCPeerConnection.close()` + every `track.stop()` + `revokeObjectURL()` on all received blobs, in one click. |
 
 ### The four security invariants
 
@@ -97,7 +98,7 @@ host ── auth-ok{proofH, name} ─────▶ guest     proofH = HMAC(key
 
 The passphrase **never goes on the wire in either direction**. Both nonces are bound into every proof and each direction is domain-separated, so a captured proof can be neither replayed nor reflected. Comparison is constant-time. Failure closes the connection immediately; three strikes locks the peer out for the session. The **guest also verifies the host** — if a squatter holds your Room ID but can't prove the password, the guest aborts and says so.
 
-**4. Kill switch.** Tears down transport *first* (so nothing can arrive mid-wipe), then revokes blob URLs, stops tracks, and resets state. Idempotent and never throws.
+**4. Kill switch.** Tears down transport *first* (so nothing can arrive mid-wipe), then revokes blob URLs, stops tracks, and resets state. Idempotent and never throws. This includes the bare `RTCPeerConnection`s created by relay mode, which the PeerJS instance does not own and `peer.destroy()` therefore does not close — they are closed by hand, with their inbound tracks stopped.
 
 ### Additional hardening
 
@@ -107,17 +108,30 @@ The passphrase **never goes on the wire in either direction**. Both nonces are b
 - **Backpressure** — chunks (16–64 KB, negotiated from `sctp.maxMessageSize`) are gated on `bufferedAmount`, and files are read lazily via `File.slice()` so a 4 GB video is never resident in memory.
 - **Guests never accept inbound connections** (star topology), and media calls from unauthenticated peers are rejected outright.
 
-### Live Broadcast requires your own signaling server
+### Broadcasting: dual-mode media signaling
 
-⚠️ File transfer works fine on PeerJS's default public broker. **Live Broadcast does not** — that broker relays data offers but silently drops the larger media offer, so the invitation never reaches the viewer. Run your own:
+A WebRTC media connection needs an *invitation* (an SDP offer) to reach the other browser somehow. PeerJS's default public broker relays data offers happily but **silently drops the larger media offer** — which is why live broadcasting used to require running your own server. LocalTube now carries the invitation itself, and lets you choose:
 
-```bash
-npx peer --port 9000
-```
+| Mode | How the invitation travels | Setup |
+|---|---|---|
+| ⚡ **In-band relay** *(default)* | Through the **already-open, authenticated DataChannel** — the same peer-to-peer channel file transfer uses. The broker is bypassed entirely after the initial introduction. | **None.** Works out of the box on the public broker. |
+| 🖥️ **Self-hosted PeerServer** | Native PeerJS routing (`peer.call`), i.e. through the signaling server. | `npx peer --port 9000`, then set host + port in **both** browsers. |
 
-Then set **host** and **port** under *Advanced — signaling server* in **both** browsers. Verified working end-to-end this way; the app also detects the failure, retries over the DataChannel, and then tells you exactly this.
+Both modes end at the same place: **one direct, DTLS/SRTP-encrypted `RTCPeerConnection`** between the two browsers. Only the route the invitation takes differs. Pick a mode under *Advanced — live video & signaling*; both peers should choose the same one.
 
-> **What a signaling server can and cannot see.** It introduces the two browsers and sees your Room ID and IP. It **never** sees your files, your stream, or your password — media and data flow directly peer-to-peer over DTLS/SRTP. Self-hosting removes the third party entirely.
+The relay is the default because it is both **easier** (no terminal) and **more private** (a broker that never carries the media offer learns strictly less). It is also more reliable by construction: the DataChannel is ordered and reliable, so unlike a broker-relayed offer, the invitation cannot simply go missing.
+
+<details>
+<summary>Why this is not a security regression</summary>
+
+- The three relay messages (`media-offer`, `media-answer`, `media-ice`) are **post-auth only** — they are not in `PRE_AUTH_TYPES`, so a stranger who guessed your Room ID has no channel on which to send them.
+- The offer is **sendonly**, and the answering side adds no tracks and no transceivers of its own — so answering can never switch on a camera or microphone.
+- SDP and ICE candidates are **bounds-checked** before reaching the browser's parser (size caps, `v=0` and `candidate:` prefixes, a required media section), inbound candidates are capped, and a `nid` discriminator makes stale traffic from a superseded negotiation inert.
+- Nothing here can *request* anything. A relayed offer carries media the broadcaster chose to push — exactly like the mechanism it replaces. Invariant #1 is untouched.
+
+</details>
+
+> **What a signaling server can and cannot see.** It introduces the two browsers and sees your Room ID and IP. It **never** sees your files, your stream, or your password — media and data flow directly peer-to-peer over DTLS/SRTP. In relay mode it does not see the media invitation either; self-hosting removes the third party entirely.
 >
 > **Honest limitation:** this is not a PAKE. Someone squatting your Room ID who completes one handshake obtains a single HMAC they can attack offline. PBKDF2 at 250 000 iterations makes each guess expensive — but a weak passphrase is still weak. Also note that WebRTC reveals your IP to the peer; that is inherent to the technology.
 
@@ -146,11 +160,12 @@ LocalTube/
 │   ├── services/
 │   │   ├── p2pProtocol.ts      # 📜 Wire contract: exhaustive message vocabulary (no
 │   │   │                       #    read/list/get verb exists), PBKDF2+HMAC challenge
-│   │   │                       #    /response, chunk framing, MIME allowlist, sanitizers.
-│   │   │                       #    Side-effect free — importing it opens nothing.
+│   │   │                       #    /response, chunk framing, MIME allowlist, sanitizers,
+│   │   │                       #    SDP/ICE validation. Side-effect free — opens nothing.
 │   │   ├── webrtcService.ts    # 🔌 The ONLY module that touches the network. Lazily
 │   │   │                       #    import()s PeerJS, runs the auth handshake, chunks
-│   │   │                       #    files with backpressure, places/answers media calls.
+│   │   │                       #    files with backpressure, and routes broadcasts down
+│   │   │                       #    either signaling branch (in-band relay / peer.call).
 │   │   └── mediaElementRegistry.ts # Publishes the live <video> so Broadcast can
 │   │                           #    captureStream() it; verifies tracks actually exist.
 │   │
@@ -251,9 +266,12 @@ LocalTube has **no backend** — the browser itself is the runtime, storage, and
 │                the receiver ACCEPTS. Reassembled to a Blob whose MIME is     │
 │                re-derived locally from an allowlist — never from the wire.   │
 ├───────────────────────────────────────────────────────────────────────────┤
-│ 3b. BROADCAST  captureStream() on the live <video> → peer.call() to every   │
-│                VERIFIED peer. Guest answers receive-only (no camera/mic ever │
-│                offered back) and attaches the MediaStream via srcObject.     │
+│ 3b. BROADCAST  captureStream() on the live <video> → offered to every        │
+│                VERIFIED peer, by one of two routes:                          │
+│                  ⚡ in-band relay  — SDP + ICE over the DataChannel (default)│
+│                  🖥️ native routing — peer.call() via the signaling server    │
+│                Guest answers receive-only (no camera/mic ever offered back)  │
+│                and attaches the MediaStream via srcObject.                   │
 ├───────────────────────────────────────────────────────────────────────────┤
 │ 4. KILL        disconnectAll() → transport torn down FIRST, then blob URLs   │
 │                revoked, tracks stopped, state wiped. Browser is isolated.    │
@@ -261,7 +279,8 @@ LocalTube has **no backend** — the browser itself is the runtime, storage, and
 ```
 
 - **A MediaStream must be attached via `srcObject`, never `src`** — it has no URL, and stringifying it yields `"[object MediaStream]"` and a silently blank element. Both viewers do this imperatively through a ref + effect.
-- **Media offers are signaling traffic**, so they can be dropped by a flaky broker while the peer-to-peer DataChannel stays perfectly healthy. A watchdog therefore asks for a re-call over the reliable channel, and gives up with an actionable message rather than hanging forever.
+- **Media offers are signaling traffic**, so a broker can drop them while the peer-to-peer DataChannel stays perfectly healthy — the failure that motivated the in-band relay. A watchdog still asks for a re-offer over the reliable channel and gives up with a **mode-specific** actionable message rather than hanging forever.
+- **The two branches share one delivery path.** Whichever route the offer took, the received stream lands in `commitIncomingStream()`, which rejects zero-track streams, cancels the watchdog, and re-commits on `addtrack` so audio negotiated a beat after video is not lost.
 
 ---
 
@@ -302,7 +321,7 @@ npm run preview    # serve the production build locally
 4. The guest picks **Join a room**, enters the same two values, and lands in the Watch Party Lobby once verified.
 5. **Send files** pushes selected library items; **Go live** broadcasts the video you're currently playing.
 
-> ⚠️ **Live Broadcast needs your own signaling server.** Run `npx peer --port 9000` and set it under *Advanced — signaling server* in **both** browsers. See [the section above](#live-broadcast-requires-your-own-signaling-server) for why.
+> ⚡ **Live Broadcast works with no setup.** It defaults to the in-band relay, which tunnels the video invitation through the encrypted DataChannel instead of the public broker. If you'd rather run your own signaling server (`npx peer --port 9000`), switch to **Self-hosted PeerServer** under *Advanced — live video & signaling* in **both** browsers. See [the section above](#broadcasting-dual-mode-media-signaling) for the trade-offs.
 
 > 🔐 **Secure context required.** Room passphrases use WebCrypto, which only exists on `https://` or `localhost`. Serving LocalTube over plain `http://` on a LAN IP will fail loudly rather than fall back to something weaker.
 
@@ -331,13 +350,14 @@ These are planned and **not currently in the codebase**:
 | P2P: no remote read | ✅ Verified | Protocol has no read/list/get message; service holds no library reference or file handle |
 | P2P: room auth | ✅ Verified | Mutual PBKDF2(250k)+HMAC proof, constant-time compare, 3-strike lockout, 15 s timeout; wrong password drops the connection (tested) |
 | P2P: session secrets | ✅ Verified | `useWebRTCStore` is **not** wrapped in `persist`; room id and passphrase die with the tab |
-| P2P: kill switch | ✅ Verified | Transport destroyed first, then blobs revoked and state wiped; propagation to the remote peer tested |
+| P2P: kill switch | ✅ Verified | Transport destroyed first, then blobs revoked and state wiped; propagation to the remote peer tested. Relayed `RTCPeerConnection`s observed reaching `closed` and inbound tracks `ended` after one click |
+| P2P: relay signaling | ✅ Verified | `media-*` messages are post-auth only; SDP/ICE bounds-checked and candidate-capped; answering side adds no tracks, so it is receive-only by construction |
 
 **Recommended production hardening:** ship a strict Content-Security-Policy. Without P2P:
 `default-src 'self'; connect-src 'none'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'`
 
 With the Watch Party enabled, `connect-src` must allow your signaling server only — e.g.
-`connect-src wss://peer.example.com` — which keeps the "no exfiltration" guarantee browser-enforced while permitting the one connection you chose.
+`connect-src wss://peer.example.com` (or `wss://0.peerjs.com` for the default broker) — which keeps the "no exfiltration" guarantee browser-enforced while permitting the one connection you chose. Note that `connect-src` does not govern `RTCPeerConnection`; ICE/STUN reachability is controlled separately, and in-band relay mode adds no new origin beyond the broker.
 
 ---
 

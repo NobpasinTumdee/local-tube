@@ -54,6 +54,23 @@ export const MAX_DISPLAY_NAME_LENGTH = 32;
 export const AUTH_TIMEOUT_MS = 15000;
 /** Wrong password attempts tolerated from one remote id before it's banned. */
 export const MAX_AUTH_ATTEMPTS = 3;
+/* ── In-band media signaling limits ────────────────────────── */
+/**
+ * A session description is a text blob we hand straight to the browser's
+ * SDP parser, so it gets a hard ceiling. Real offers are 2–8 KB; 128 KB is
+ * generous enough for a many-track renegotiation and still far too small
+ * to be useful as a memory-exhaustion vector.
+ */
+export const MAX_SDP_BYTES = 128 * 1024;
+/** One `a=candidate:` line. The spec-ish practical maximum is ~250 chars. */
+export const MAX_ICE_CANDIDATE_CHARS = 1024;
+/**
+ * Trickle ICE for one relay connection. A healthy negotiation emits a few
+ * dozen; anything past this is a peer trying to make us do work.
+ */
+export const MAX_ICE_CANDIDATES = 256;
+/** Tracks we are willing to receive from one broadcaster. */
+export const MAX_INCOMING_TRACKS = 4;
 /* ── Key derivation ────────────────────────────────────────── */
 /**
  * Deliberately slow. A room-id squatter who captures one proof must spend
@@ -61,6 +78,21 @@ export const MAX_AUTH_ATTEMPTS = 3;
  */
 export const PBKDF2_ITERATIONS = 250000;
 const NONCE_BYTES = 32;
+/* ─────────────────────────────────────────────────────────────
+ *  ICE
+ * ─────────────────────────────────────────────────────────────
+ *  Only used by the in-band relay, and only as a fallback: the relay
+ *  prefers whatever ICE configuration the live PeerJS instance is already
+ *  using, so both paths reach the network identically.
+ *
+ *  A STUN server is contacted only to learn this machine's public
+ *  ip:port — it sees no media, no files and no room password. On a LAN
+ *  the host-candidate pair usually wins before STUN even answers.
+ * ───────────────────────────────────────────────────────────── */
+export const DEFAULT_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+];
 /** The only two messages tolerated before a peer is authenticated. */
 const PRE_AUTH_TYPES = new Set(['hello', 'auth', 'auth-ok', 'auth-fail']);
 export const isPreAuthMessage = (t) => PRE_AUTH_TYPES.has(t);
@@ -318,5 +350,56 @@ export function validateFileOffer(msg) {
     const expected = msg.size === 0 ? 0 : Math.ceil(msg.size / msg.chunkSize);
     if (msg.chunks !== expected)
         return 'Inconsistent chunk count';
+    return null;
+}
+/* ── In-band signaling validation ──────────────────────────── */
+/** Negotiation ids are small positive integers, allocated per connection. */
+export function isValidNegotiationId(value) {
+    return Number.isInteger(value) && value > 0 && value <= 0xffff;
+}
+/**
+ * Bounds-checks a relayed session description before it reaches the
+ * browser's SDP parser.
+ *
+ * The parser is the same one that handles broker-delivered offers, so this
+ * is not a new attack surface — but a relayed offer arrives over a channel
+ * an authenticated peer controls completely, so it is worth refusing the
+ * obviously-malformed and the absurdly-large before we hand it over.
+ */
+export function validateSdp(sdp, kind) {
+    if (typeof sdp !== 'string')
+        return 'Session description is not a string';
+    if (sdp.length === 0)
+        return 'Empty session description';
+    if (sdp.length > MAX_SDP_BYTES)
+        return 'Session description exceeds the size limit';
+    /* Every SDP starts with a version line; anything else is not an SDP. */
+    if (!sdp.startsWith('v=0'))
+        return 'Malformed session description';
+    /* An offer with no media section can only be an attempt to renegotiate
+     * this connection into something other than a one-way broadcast. */
+    if (!/^m=(audio|video)[ ]/m.test(sdp))
+        return `Relayed ${kind} carries no media section`;
+    return null;
+}
+/** Structural check on a trickled candidate. */
+export function validateIceCandidate(msg) {
+    if (typeof msg.candidate !== 'string')
+        return 'Candidate is not a string';
+    if (msg.candidate.length > MAX_ICE_CANDIDATE_CHARS)
+        return 'Candidate exceeds the size limit';
+    /* The empty candidate is the legal "end of candidates" marker. */
+    if (msg.candidate !== '' && !msg.candidate.startsWith('candidate:'))
+        return 'Malformed candidate';
+    if (msg.sdpMid !== null && typeof msg.sdpMid !== 'string')
+        return 'Malformed sdpMid';
+    if (typeof msg.sdpMid === 'string' && msg.sdpMid.length > 32)
+        return 'Malformed sdpMid';
+    if (msg.sdpMLineIndex !== null &&
+        (!Number.isInteger(msg.sdpMLineIndex) || msg.sdpMLineIndex < 0 || msg.sdpMLineIndex > 32)) {
+        return 'Malformed sdpMLineIndex';
+    }
+    if (msg.sdpMid === null && msg.sdpMLineIndex === null)
+        return 'Candidate identifies no media section';
     return null;
 }

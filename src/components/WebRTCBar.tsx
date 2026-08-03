@@ -15,6 +15,7 @@ import {
   Power,
   RadioTower,
   Send,
+  Server,
   Share2,
   ShieldAlert,
   ShieldCheck,
@@ -22,11 +23,13 @@ import {
   UserCheck,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   useWebRTCStore,
   selectPendingIncoming,
   type SessionRole,
+  type SignalingMode,
 } from '../store/useWebRTCStore';
 import {
   PASSWORD_MIN_LENGTH,
@@ -198,6 +201,10 @@ function SetupForm() {
   const [advanced, setAdvanced] = useState(false);
   const [signaling, setSignaling] = useState<Signaling>({ host: '', port: '9000', path: '/', secure: true });
 
+  const signalingMode = useWebRTCStore((s) => s.signalingMode);
+  const setSignalingMode = useWebRTCStore((s) => s.setSignalingMode);
+  const selfHosted = signalingMode === 'self-hosted-server';
+
   const roomValid = isValidRoomId(room);
   const passwordValid = password.length >= PASSWORD_MIN_LENGTH;
   const canStart = roomValid && passwordValid && !busy;
@@ -213,8 +220,11 @@ function SetupForm() {
         roomId: room,
         password,
         displayName: name,
+        signalingMode,
+        /* A custom broker is only meaningful in native-routing mode — the
+         * relay works on whichever server introduced the two browsers. */
         signaling:
-          advanced && signaling.host.trim()
+          selfHosted && signaling.host.trim()
             ? {
                 host: signaling.host.trim(),
                 port: Number(signaling.port) || 443,
@@ -337,44 +347,92 @@ function SetupForm() {
         className="mt-4 flex w-full items-center gap-1.5 text-xs font-medium text-content/50 transition hover:text-content/80"
       >
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advanced ? 'rotate-180' : ''}`} />
-        Advanced — signaling server
+        Advanced — live video &amp; signaling
+        <span
+          className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+            selfHosted ? 'bg-amber-500/15 text-amber-500' : 'bg-emerald-500/15 text-emerald-400'
+          }`}
+        >
+          {selfHosted ? 'Self-hosted' : 'In-band relay'}
+        </span>
       </button>
       {advanced && (
         <div className="mt-2 space-y-2 rounded-xl border border-content/10 bg-content/[0.03] p-3">
           <p className="text-xs leading-relaxed text-content/60">
-            By default LocalTube uses PeerJS's public broker to introduce the two browsers. It never sees
-            your files, your stream or your password — but it does see your room ID and IP. Point this at
-            your own PeerServer to remove that third party entirely.
+            LocalTube uses PeerJS's public broker to <em>introduce</em> the two browsers. It never sees
+            your files, your stream or your password — but it does see your room ID and IP. What follows
+            only changes how a <span className="font-semibold text-content">live broadcast</span>{' '}
+            negotiates; file transfer is identical either way.
           </p>
-          <p className="rounded-lg bg-amber-500/10 p-2 text-xs leading-relaxed text-amber-500">
-            <span className="font-semibold">Required for Live Broadcast.</span> The public broker relays
-            file transfers fine, but does not reliably relay the live-video invitation, so broadcasts
-            never reach viewers. Run <code className="font-mono">npx peer --port 9000</code> and point
-            both browsers here.
+
+          <ModeCard
+            active={!selfHosted}
+            onClick={() => setSignalingMode('default-relay')}
+            icon={<Zap className="h-4 w-4" />}
+            title="In-band relay"
+            badge="Default · no setup"
+            tone="emerald"
+          >
+            Tunnels the video invitation through the encrypted data channel the two browsers already
+            share, so the broker never has to carry it — which is exactly what it fails to do. Works
+            out of the box on the public broker, with no terminal and no server.
+          </ModeCard>
+
+          <ModeCard
+            active={selfHosted}
+            onClick={() => setSignalingMode('self-hosted-server')}
+            icon={<Server className="h-4 w-4" />}
+            title="Self-hosted PeerServer"
+            badge="Advanced / LAN"
+            tone="amber"
+          >
+            Native PeerJS media routing (<code className="font-mono">peer.call</code>), where the
+            invitation travels through the signaling server. Removes the third-party broker entirely,
+            but needs one of your own — run <code className="font-mono">npx peer --port 9000</code> and
+            point both browsers at it below.
+          </ModeCard>
+
+          {selfHosted && (
+            <div className="space-y-2 rounded-lg border border-content/10 bg-base/40 p-2.5">
+              <div className="flex gap-2">
+                <input
+                  value={signaling.host}
+                  onChange={(e) => setSignaling({ ...signaling, host: e.target.value })}
+                  placeholder="peer.example.com or 192.168.1.20"
+                  className="h-9 w-full rounded-lg border border-content/10 bg-base px-2.5 text-xs text-content outline-none focus:border-accent/60"
+                />
+                <input
+                  value={signaling.port}
+                  onChange={(e) =>
+                    setSignaling({ ...signaling, port: e.target.value.replace(/\D/g, '') })
+                  }
+                  placeholder="9000"
+                  className="h-9 w-20 shrink-0 rounded-lg border border-content/10 bg-base px-2.5 text-xs text-content outline-none focus:border-accent/60"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-content/60">
+                <input
+                  type="checkbox"
+                  checked={signaling.secure}
+                  onChange={(e) => setSignaling({ ...signaling, secure: e.target.checked })}
+                  className="accent-current"
+                />
+                Use TLS (wss://)
+              </label>
+              {!signaling.host.trim() && (
+                <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-amber-500">
+                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                  No server set — this mode will fall back to the public broker, which does not relay
+                  media invitations, so broadcasts will not reach viewers.
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="text-[11px] leading-relaxed text-content/40">
+            Both modes end at the same place: one direct, DTLS/SRTP-encrypted connection between the two
+            browsers. Only the route the invitation takes differs. Both peers should pick the same mode.
           </p>
-          <div className="flex gap-2">
-            <input
-              value={signaling.host}
-              onChange={(e) => setSignaling({ ...signaling, host: e.target.value })}
-              placeholder="peer.example.com"
-              className="h-9 w-full rounded-lg border border-content/10 bg-base px-2.5 text-xs text-content outline-none focus:border-accent/60"
-            />
-            <input
-              value={signaling.port}
-              onChange={(e) => setSignaling({ ...signaling, port: e.target.value.replace(/\D/g, '') })}
-              placeholder="9000"
-              className="h-9 w-20 shrink-0 rounded-lg border border-content/10 bg-base px-2.5 text-xs text-content outline-none focus:border-accent/60"
-            />
-          </div>
-          <label className="flex items-center gap-2 text-xs text-content/60">
-            <input
-              type="checkbox"
-              checked={signaling.secure}
-              onChange={(e) => setSignaling({ ...signaling, secure: e.target.checked })}
-              className="accent-current"
-            />
-            Use TLS (wss://)
-          </label>
         </div>
       )}
 
@@ -400,6 +458,64 @@ function SetupForm() {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * One selectable broadcast-transport mode. Radio semantics rather than a
+ * checkbox: the two modes are mutually exclusive routes for the same
+ * negotiation, and picking one has to be a deliberate, explained choice.
+ */
+function ModeCard({
+  active,
+  onClick,
+  icon,
+  title,
+  badge,
+  tone,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  badge: string;
+  tone: 'emerald' | 'amber';
+  children: React.ReactNode;
+}) {
+  const accent = tone === 'emerald' ? 'text-emerald-400' : 'text-amber-500';
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      className={`w-full rounded-lg border p-2.5 text-left transition ${
+        active
+          ? 'border-accent/50 bg-accent/[0.07]'
+          : 'border-content/10 bg-content/[0.02] hover:bg-content/[0.05]'
+      }`}
+    >
+      <span className="flex items-center gap-2">
+        <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+            active ? 'border-accent bg-accent' : 'border-content/25'
+          }`}
+        >
+          {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+        </span>
+        <span className={active ? accent : 'text-content/50'}>{icon}</span>
+        <span className="text-sm font-semibold text-content">{title}</span>
+        <span
+          className={`ml-auto shrink-0 text-[10px] font-bold uppercase tracking-wide ${
+            active ? accent : 'text-content/35'
+          }`}
+        >
+          {badge}
+        </span>
+      </span>
+      <span className="mt-1.5 block pl-6 text-xs leading-relaxed text-content/60">{children}</span>
+    </button>
   );
 }
 
@@ -495,6 +611,9 @@ function LiveSession({ onOpenShare, onClose }: { onOpenShare: () => void; onClos
   const disconnectAll = useWebRTCStore((s) => s.disconnectAll);
   const transfers = useWebRTCStore((s) => s.transferProgress);
   const setLobbyOpen = useWebRTCStore((s) => s.setLobbyOpen);
+  /* Only settable from SetupForm, which is unreachable while live — so
+   * this always matches the mode the running session was started with. */
+  const signalingMode: SignalingMode = useWebRTCStore((s) => s.signalingMode);
 
   const [copied, setCopied] = useState(false);
   const authed = peers.filter((p) => p.authenticated);
@@ -530,6 +649,18 @@ function LiveSession({ onOpenShare, onClose }: { onOpenShare: () => void; onClos
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
+
+      <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content/40">
+        {signalingMode === 'default-relay' ? (
+          <Zap className="h-3 w-3 text-emerald-400" />
+        ) : (
+          <Server className="h-3 w-3 text-amber-500" />
+        )}
+        Live video:{' '}
+        <span className="font-medium text-content/60">
+          {signalingMode === 'default-relay' ? 'in-band relay' : 'native PeerJS routing'}
+        </span>
+      </p>
 
       {status === 'connecting' && (
         <p className="mt-3 flex items-center gap-2 text-xs text-content/50">
