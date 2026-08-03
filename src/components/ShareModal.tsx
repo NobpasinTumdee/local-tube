@@ -20,7 +20,7 @@ import {
 import { useStore } from '../store/useStore';
 import {
   useWebRTCStore,
-  selectAuthenticatedPeers,
+  selectDirectPeers,
   type TransferProgress,
 } from '../store/useWebRTCStore';
 import { acceptIncomingFile, cancelTransfer, declineIncomingFile, sendFileToPeers } from '../services/webrtcService';
@@ -50,7 +50,9 @@ type Tab = 'send' | 'received';
 
 export default function ShareModal({ open, onClose }: Props) {
   const videos = useStore((s) => s.videos);
-  const peers = useWebRTCStore(selectAuthenticatedPeers);
+  /* Directly connected only: a file push is a real byte stream over a real
+   * DataConnection, so unlike chat it cannot be relayed via the host. */
+  const peers = useWebRTCStore(selectDirectPeers);
   const transfers = useWebRTCStore((s) => s.transferProgress);
   const status = useWebRTCStore((s) => s.status);
 

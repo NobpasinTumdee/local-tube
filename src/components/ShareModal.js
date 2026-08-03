@@ -3,12 +3,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, Download, Film, ImageIcon, Inbox, Loader2, Play, Search, Send, ShieldCheck, Trash2, Upload, Users, X, } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { useWebRTCStore, selectAuthenticatedPeers, } from '../store/useWebRTCStore';
+import { useWebRTCStore, selectDirectPeers, } from '../store/useWebRTCStore';
 import { acceptIncomingFile, cancelTransfer, declineIncomingFile, sendFileToPeers } from '../services/webrtcService';
 import { formatBytes } from './WebRTCBar';
 export default function ShareModal({ open, onClose }) {
     const videos = useStore((s) => s.videos);
-    const peers = useWebRTCStore(selectAuthenticatedPeers);
+    /* Directly connected only: a file push is a real byte stream over a real
+     * DataConnection, so unlike chat it cannot be relayed via the host. */
+    const peers = useWebRTCStore(selectDirectPeers);
     const transfers = useWebRTCStore((s) => s.transferProgress);
     const status = useWebRTCStore((s) => s.status);
     const [tab, setTab] = useState('send');

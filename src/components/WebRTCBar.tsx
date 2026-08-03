@@ -12,6 +12,7 @@ import {
   Info,
   KeyRound,
   Loader2,
+  MessageSquare,
   Power,
   RadioTower,
   Send,
@@ -38,8 +39,10 @@ import {
   isValidRoomId,
   randomRoomId,
 } from '../services/p2pProtocol';
+import { useChatStore, selectTotalUnread } from '../store/useChatStore';
 import { acceptIncomingFile, declineIncomingFile, shortId } from '../services/webrtcService';
 import ShareModal from './ShareModal';
+import ChatPanel from './ChatPanel';
 import { BroadcastControls } from './BroadcastView';
 
 /* ─────────────────────────────────────────────────────────────
@@ -91,6 +94,9 @@ export default function WebRTCBar() {
         )}
       </button>
 
+      {/* ── Chat toggle — only meaningful once a session exists ── */}
+      {live && <ChatToggle />}
+
       {/* ── Always-visible kill switch while anything is live ── */}
       {live && (
         <button
@@ -116,9 +122,41 @@ export default function WebRTCBar() {
 
       <ShareModal open={shareOpen} onClose={() => setShareOpen(false)} />
 
+      {/* Renders null unless a session is live and the drawer is open. */}
+      <ChatPanel />
+
       {/* Consent prompts have to be reachable without opening anything. */}
       <IncomingOfferToasts onOpenShare={() => setShareOpen(true)} />
     </>
+  );
+}
+
+/**
+ * Header entry point for chat. The badge counts every thread, so a whisper
+ * arriving in a tab you aren't looking at is still visible from the header.
+ */
+function ChatToggle() {
+  const open = useChatStore((s) => s.open);
+  const toggleOpen = useChatStore((s) => s.toggleOpen);
+  const unread = useChatStore(selectTotalUnread);
+
+  return (
+    <button
+      onClick={toggleOpen}
+      className={`relative flex h-10 shrink-0 items-center justify-center rounded-full px-3 transition hover:bg-content/10 ${
+        open ? 'bg-primary/15 text-primary' : 'text-content/80'
+      }`}
+      aria-label="Room chat"
+      aria-pressed={open}
+      title="Room chat (messages are never saved)"
+    >
+      <MessageSquare className="h-5 w-5" />
+      {unread > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </button>
   );
 }
 

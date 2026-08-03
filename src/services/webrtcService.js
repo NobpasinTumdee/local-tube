@@ -1,5 +1,6 @@
 import { useWebRTCStore, registerRtcTeardown, } from '../store/useWebRTCStore';
-import { AUTH_TIMEOUT_MS, DEFAULT_ICE_SERVERS, MAX_AUTH_ATTEMPTS, MAX_ICE_CANDIDATES, MAX_INCOMING_TRACKS, PROTOCOL_VERSION, assertSecureContext, clearRoomKeyCache, computeProof, decodeMessage, deriveRoomKey, encodeMessage, frameChunk, isPreAuthMessage, isValidNegotiationId, isValidNonce, makeNonce, negotiateChunkSize, parseChunk, peerIdForRoom, randomHex, safeMimeFor, sanitizeDisplayName, sanitizeFilename, timingSafeEqual, validateFileOffer, validateIceCandidate, validateSdp, } from './p2pProtocol';
+import { useChatStore, LOCAL_SENDER_ID } from '../store/useChatStore';
+import { AUTH_TIMEOUT_MS, CHAT_MAX_FILE_BYTES, CHAT_ROOM_TARGET, DEFAULT_ICE_SERVERS, MAX_AUTH_ATTEMPTS, MAX_ICE_CANDIDATES, MAX_INCOMING_TRACKS, PROTOCOL_VERSION, assertSecureContext, clearRoomKeyCache, computeProof, decodeMessage, deriveRoomKey, encodeMessage, frameChunk, isPreAuthMessage, isValidNegotiationId, isValidNonce, makeNonce, negotiateChunkSize, newMessageId, parseChunk, peerIdForRoom, randomHex, safeMimeFor, sanitizeChatText, sanitizeDisplayName, sanitizeFilename, timingSafeEqual, validateChatFile, validateChatText, validateFileOffer, validateRoster, validateIceCandidate, validateSdp, } from './p2pProtocol';
 /* ─────────────────────────────────────────────────────────────
  *  WEBRTC SERVICE
  * ─────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ const bannedPeers = new Map();
 let unloadHandler = null;
 /* ── store shortcuts ───────────────────────────────────────── */
 const store = () => useWebRTCStore.getState();
+const chat = () => useChatStore.getState();
 const log = (level, message) => store().logEvent(level, message);
 /**
  * Boots PeerJS and claims (host) or dials (guest) the room. Resolves once
@@ -362,6 +364,7 @@ function setupConnection(conn, role) {
         authenticated: false,
         joinedAt: Date.now(),
         failedAttempts: 0,
+        direct: true,
     });
     /* A peer that stalls mid-handshake is a peer that never authenticates. */
     st.authTimer = setTimeout(() => {
@@ -489,6 +492,16 @@ function handleData(st, data) {
             closeRelay(st);
             endIncomingBroadcast(st.conn.peer);
             break;
+        case 'roster':
+            onRoster(st, msg);
+            break;
+        /* ── chat ── */
+        case 'chat':
+            onChatText(st, msg);
+            break;
+        case 'chat-file':
+            onChatFileOffer(st, msg);
+            break;
         /* ── in-band media signaling (default-relay mode) ── */
         case 'media-offer':
             onMediaOffer(st, msg);
@@ -566,6 +579,13 @@ function onAuth(st, msg) {
         st.name = sanitizeDisplayName(msg.name);
         markAuthenticated(st);
         send(st, { t: 'auth-ok', proof: ours, name: session.displayName });
+        /*
+         * Strictly AFTER auth-ok. The joiner does not consider itself
+         * authenticated until it has verified our proof, so anything we send
+         * before that lands on its pre-auth gate and gets the connection
+         * dropped as a protocol violation — by our own rule, correctly.
+         */
+        publishRoster();
     })();
 }
 /* ── guest side ── */
@@ -608,10 +628,12 @@ function markAuthenticated(st) {
         authenticated: true,
         joinedAt: Date.now(),
         failedAttempts: 0,
+        direct: true,
     });
     bannedPeers.delete(st.conn.peer);
     store().setStatus(store().broadcastTitle ? 'broadcasting' : 'connected');
     log('info', `${st.name} authenticated (${shortId(st.conn.peer)}).`);
+    chat().pushSystem(`${st.name} joined the room.`);
     /* A guest's whole purpose is to wait for the host, so drop them straight
      * into the room instead of leaving them on an empty screen. */
     if (session?.role === 'guest')
@@ -662,10 +684,25 @@ function handleConnectionClosed(st, reason) {
             store().patchTransfer(t.id, { status: 'failed', error: reason ?? 'Peer disconnected' });
         }
     }
-    for (const inc of st.incoming.values())
+    /* Chat attachments that were still moving in either direction die with
+     * the connection — mark them so the bubble stops spinning forever. */
+    for (const inc of st.incoming.values()) {
+        if (inc.kind === 'chat' && inc.chatDisplay) {
+            chat().patchAttachment(inc.id, { error: 'Sender disconnected' });
+        }
         inc.parts.length = 0;
+    }
+    for (const out of st.outgoing.values()) {
+        if (out.kind === 'chat' && !out.silent) {
+            chat().patchAttachment(out.id, { error: 'Peer disconnected' });
+        }
+    }
     st.incoming.clear();
     st.outgoing.clear();
+    if (st.authenticated) {
+        chat().pushSystem(`${st.name} left the room.`);
+        chat().dropPeerThread(st.conn.peer);
+    }
     /* Hang up any media we had with them. */
     const call = session.calls.get(st.conn.peer);
     if (call) {
@@ -679,8 +716,10 @@ function handleConnectionClosed(st, reason) {
     }
     endIncomingBroadcast(st.conn.peer);
     store().removePeer(st.conn.peer);
-    if (st.authenticated)
+    if (st.authenticated) {
         log('info', `${st.name} left${reason ? ` (${reason})` : ''}.`);
+        publishRoster();
+    }
     /* A guest whose only connection is the host now has nothing left. */
     if (session.role === 'guest' && session.conns.size === 0) {
         store().disconnectAll(reason ?? 'Disconnected from the room');
@@ -711,6 +750,7 @@ export function sendFileToPeers(file, peerIds) {
         const transfer = {
             id,
             seq,
+            kind: 'library',
             file,
             filename,
             size: file.size,
@@ -776,6 +816,19 @@ async function pump(st, transfer) {
             return;
     }
     st.pumping = true;
+    /* A silent (relayed) transfer shares its id with a message we may also be
+     * displaying as *received* — writing progress from it would rewind the
+     * bar on an attachment that already finished. */
+    const commit = (bytes) => {
+        if (transfer.silent)
+            return;
+        if (transfer.kind === 'chat') {
+            chat().patchAttachment(transfer.id, { progress: transfer.size ? bytes / transfer.size : 1 });
+        }
+        else {
+            store().patchTransfer(transfer.id, { transferred: bytes });
+        }
+    };
     let lastCommit = 0;
     try {
         for (let index = 0; index < transfer.chunks; index++) {
@@ -793,19 +846,31 @@ async function pump(st, transfer) {
             const now = Date.now();
             if (now - lastCommit > PROGRESS_INTERVAL_MS || index === transfer.chunks - 1) {
                 lastCommit = now;
-                store().patchTransfer(transfer.id, { transferred: transfer.sent });
+                commit(transfer.sent);
             }
         }
         send(st, { t: 'file-done', id: transfer.id, size: transfer.size });
-        store().patchTransfer(transfer.id, { transferred: transfer.size, status: 'completed' });
+        if (transfer.kind === 'chat') {
+            if (!transfer.silent)
+                chat().patchAttachment(transfer.id, { progress: 1 });
+        }
+        else {
+            store().patchTransfer(transfer.id, { transferred: transfer.size, status: 'completed' });
+        }
         log('info', `Sent "${transfer.filename}" to ${st.name}.`);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : 'Transfer failed';
-        store().patchTransfer(transfer.id, {
-            status: transfer.cancelled ? 'cancelled' : 'failed',
-            error: message,
-        });
+        if (transfer.kind === 'chat') {
+            if (!transfer.silent)
+                chat().patchAttachment(transfer.id, { error: message });
+        }
+        else {
+            store().patchTransfer(transfer.id, {
+                status: transfer.cancelled ? 'cancelled' : 'failed',
+                error: message,
+            });
+        }
         if (st.conn.open) {
             send(st, { t: 'file-abort', id: transfer.id, reason: message });
         }
@@ -885,6 +950,7 @@ function onFileOffer(st, msg) {
     st.incoming.set(msg.seq, {
         id: msg.id,
         seq: msg.seq,
+        kind: 'library',
         filename,
         size: msg.size,
         chunkSize: msg.chunkSize,
@@ -965,7 +1031,12 @@ function handleChunk(st, buf) {
     const now = Date.now();
     if (now - inc.lastCommit > PROGRESS_INTERVAL_MS || inc.nextIndex === inc.chunks) {
         inc.lastCommit = now;
-        store().patchTransfer(inc.id, { transferred: inc.received });
+        if (inc.kind === 'chat') {
+            chat().patchAttachment(inc.id, { progress: inc.size ? inc.received / inc.size : 1 });
+        }
+        else {
+            store().patchTransfer(inc.id, { transferred: inc.received });
+        }
     }
 }
 function onFileDone(st, id, claimedSize) {
@@ -976,10 +1047,13 @@ function onFileDone(st, id, claimedSize) {
         /* Cross-check what arrived against what was promised, twice over. */
         if (inc.received !== inc.size || inc.received !== claimedSize || inc.nextIndex !== inc.chunks) {
             inc.parts.length = 0;
-            store().patchTransfer(id, {
-                status: 'failed',
-                error: `Incomplete transfer (${inc.received} of ${inc.size} bytes)`,
-            });
+            const problem = `Incomplete transfer (${inc.received} of ${inc.size} bytes)`;
+            if (inc.kind === 'chat') {
+                chat().patchAttachment(id, { error: 'Transfer was incomplete' });
+            }
+            else {
+                store().patchTransfer(id, { status: 'failed', error: problem });
+            }
             log('warn', `"${inc.filename}" from ${st.name} was incomplete and was discarded.`);
             return;
         }
@@ -988,6 +1062,21 @@ function onFileDone(st, id, claimedSize) {
         const blob = new Blob(inc.parts, { type: inc.mime });
         inc.parts.length = 0; // release the chunk array; the Blob owns the bytes now
         const blobUrl = URL.createObjectURL(blob);
+        if (inc.kind === 'chat') {
+            if (inc.chatDisplay) {
+                chat().patchAttachment(id, { blobUrl, progress: 1 });
+                log('info', `Received chat attachment "${inc.filename}" from ${inc.chatFromName ?? st.name}.`);
+            }
+            else {
+                /* Pure relay hop — we hold the bytes only long enough to forward
+                 * them, and never mint a URL we would then have to remember to
+                 * revoke. Dropping the reference here is what makes that true. */
+                URL.revokeObjectURL(blobUrl);
+            }
+            /* Store-and-forward: the room only reaches other guests through us. */
+            relayChatAttachment(st, inc, blob);
+            return;
+        }
         store().patchTransfer(id, {
             status: 'completed',
             transferred: inc.size,
@@ -998,18 +1087,337 @@ function onFileDone(st, id, claimedSize) {
     }
 }
 function onFileAbort(st, id, reason) {
+    let kind = 'library';
     for (const [seq, inc] of st.incoming) {
         if (inc.id !== id)
             continue;
+        kind = inc.kind;
         inc.parts.length = 0;
         st.incoming.delete(seq);
     }
     const out = st.outgoing.get(id);
     if (out) {
+        kind = out.kind;
         out.cancelled = true;
         st.outgoing.delete(id);
     }
-    store().patchTransfer(id, { status: 'failed', error: sanitizeDisplayName(reason) });
+    const message = sanitizeDisplayName(reason);
+    if (kind === 'chat') {
+        chat().patchAttachment(id, { error: message });
+        return;
+    }
+    store().patchTransfer(id, { status: 'failed', error: message });
+}
+/* ─────────────────────────────────────────────────────────────
+ *  CHAT
+ * ─────────────────────────────────────────────────────────────
+ *  The room is a star, so the host is the only path between guests: it
+ *  relays room messages and guest→guest whispers. Two rules make that
+ *  safe, and both are enforced here rather than trusted from the wire:
+ *
+ *   • ORIGIN IS STAMPED. When the host relays, it replaces `from` with the
+ *     identity of the connection the bytes actually arrived on. A guest
+ *     cannot claim to be another guest, or to be the host.
+ *   • WHISPERS ARE NOT FANNED OUT. A message addressed to one peer is
+ *     forwarded to exactly that connection, or dropped.
+ *
+ *  Attachments are store-and-forward: the host receives the whole file
+ *  (bounded by CHAT_MAX_FILE_BYTES) and re-sends it. Nothing is written to
+ *  disk at any hop — the bytes exist as a Blob in the tab's heap and die
+ *  with it. See the header of useChatStore for the persistence contract.
+ * ───────────────────────────────────────────────────────────── */
+const localPeerId = () => session?.peer.id ?? '';
+/* ── roster (host → guests) ────────────────────────────────── */
+/**
+ * Tells every guest who else is in the room, so they can open a whisper
+ * thread with someone they have no connection to. Called whenever
+ * membership changes; cheap enough at MAX_PEERS that diffing isn't worth it.
+ */
+function publishRoster() {
+    if (!session || session.role !== 'host')
+        return;
+    const authed = [...session.conns.values()].filter((c) => c.authenticated);
+    for (const st of authed) {
+        /* Each guest gets everyone *except itself*, plus the host. */
+        const peers = [
+            { id: localPeerId(), name: session.displayName },
+            ...authed.filter((o) => o !== st).map((o) => ({ id: o.conn.peer, name: o.name })),
+        ];
+        send(st, { t: 'roster', peers });
+    }
+}
+function onRoster(st, msg) {
+    /* Only the host publishes membership. A guest claiming otherwise is
+     * trying to inject peers into our list. */
+    if (st.role !== 'guest')
+        throw new Error('roster from a non-host');
+    const problem = validateRoster(msg);
+    if (problem)
+        throw new Error(problem);
+    store().applyRoster(msg.peers
+        /* The host is already in our list as a direct peer. */
+        .filter((p) => p.id !== localPeerId() && p.id !== st.conn.peer)
+        .map((p) => ({ id: p.id, name: sanitizeDisplayName(p.name) })));
+}
+/** The connections a locally-composed message should be handed to. */
+function chatRoute(target) {
+    if (!session)
+        return [];
+    const authed = [...session.conns.values()].filter((c) => c.authenticated);
+    /* A guest has exactly one connection; the host fans out from there. */
+    if (session.role === 'guest')
+        return authed;
+    if (target === CHAT_ROOM_TARGET)
+        return authed;
+    const one = session.conns.get(target);
+    return one?.authenticated ? [one] : [];
+}
+/** Which tab a message belongs in — always the *other* participant. */
+const threadFor = (target, otherId) => target === CHAT_ROOM_TARGET ? CHAT_ROOM_TARGET : otherId;
+export function sendChatMessage(text, target) {
+    if (!session)
+        throw new Error('No P2P session is running.');
+    const clean = sanitizeChatText(text);
+    if (!clean)
+        return;
+    const targets = chatRoute(target);
+    if (targets.length === 0) {
+        chat().pushSystem(target === CHAT_ROOM_TARGET
+            ? 'Nobody is in the room yet — message not sent.'
+            : 'That peer is no longer connected — message not sent.', target);
+        return;
+    }
+    const id = newMessageId();
+    for (const st of targets)
+        send(st, { t: 'chat', id, to: target, text: clean });
+    chat().addMessage({
+        id,
+        senderId: LOCAL_SENDER_ID,
+        senderName: store().displayName,
+        targetPeerId: target,
+        threadId: target,
+        mine: true,
+        text: clean,
+        timestamp: Date.now(),
+    });
+}
+/* ── inbound text ──────────────────────────────────────────── */
+function onChatText(st, msg) {
+    if (!session)
+        return;
+    const problem = validateChatText(msg);
+    if (problem)
+        throw new Error(problem);
+    const text = sanitizeChatText(msg.text);
+    if (!text)
+        return;
+    /* ── We are the host: this arrived from a guest. ── */
+    if (st.role === 'host') {
+        /* Their claimed identity is discarded — we know who they are. */
+        const from = st.conn.peer;
+        const fromName = st.name;
+        if (msg.to === CHAT_ROOM_TARGET) {
+            deliverChatText(msg.id, from, fromName, CHAT_ROOM_TARGET, CHAT_ROOM_TARGET, text);
+            for (const other of session.conns.values()) {
+                if (other === st || !other.authenticated)
+                    continue;
+                send(other, { t: 'chat', id: msg.id, to: CHAT_ROOM_TARGET, text, from, fromName });
+            }
+            return;
+        }
+        if (msg.to === localPeerId()) {
+            deliverChatText(msg.id, from, fromName, msg.to, from, text);
+            return;
+        }
+        /* A whisper for someone else: exactly one hop, no copy for us. */
+        const target = session.conns.get(msg.to);
+        if (!target?.authenticated)
+            return;
+        send(target, { t: 'chat', id: msg.id, to: msg.to, text, from, fromName });
+        return;
+    }
+    /* ── We are a guest: this arrived from the host, which we authenticated,
+     *    so its stamp is the thing we trust. ── */
+    if (msg.to !== CHAT_ROOM_TARGET && msg.to !== localPeerId())
+        return; // misrouted
+    const from = typeof msg.from === 'string' && msg.from ? msg.from : st.conn.peer;
+    const fromName = msg.fromName ? sanitizeDisplayName(msg.fromName) : st.name;
+    deliverChatText(msg.id, from, fromName, msg.to, threadFor(msg.to, from), text);
+}
+function deliverChatText(id, senderId, senderName, targetPeerId, threadId, text) {
+    chat().addMessage({
+        id,
+        senderId,
+        senderName,
+        targetPeerId,
+        threadId,
+        mine: false,
+        text,
+        timestamp: Date.now(),
+    });
+}
+/* ── attachments ───────────────────────────────────────────── */
+export function sendChatAttachment(file, target) {
+    if (!session)
+        throw new Error('No P2P session is running.');
+    if (file.size > CHAT_MAX_FILE_BYTES) {
+        throw new Error(`Attachments are capped at ${Math.floor(CHAT_MAX_FILE_BYTES / (1024 * 1024))} MB. ` +
+            `Use "Send files" for anything larger.`);
+    }
+    const targets = chatRoute(target);
+    if (targets.length === 0)
+        throw new Error('Nobody to send this to.');
+    const id = newMessageId();
+    const filename = sanitizeFilename(file.name);
+    const { mime, mediaType } = safeMimeFor(filename);
+    /* Our own copy renders immediately from the local File. Revoked by
+     * clearAllChat / ring-buffer eviction like any other attachment. */
+    chat().addMessage({
+        id,
+        senderId: LOCAL_SENDER_ID,
+        senderName: store().displayName,
+        targetPeerId: target,
+        threadId: target,
+        mine: true,
+        file: {
+            name: filename,
+            size: file.size,
+            type: mediaType === 'image' ? mime : file.type || mime,
+            blobUrl: URL.createObjectURL(file),
+            progress: 0,
+        },
+        timestamp: Date.now(),
+    });
+    targets.forEach((st, i) => {
+        /* Only the first send drives the progress bar — N concurrent pumps
+         * writing one number would just make it jitter. */
+        pushChatFile(st, file, filename, id, target, i > 0);
+    });
+}
+/** Queues one chat attachment onto one connection. */
+function pushChatFile(st, file, filename, id, target, silent, from, fromName) {
+    const seq = st.nextSeq++;
+    const chunkSize = negotiateChunkSize(st.conn.peerConnection);
+    const chunks = file.size === 0 ? 0 : Math.ceil(file.size / chunkSize);
+    const transfer = {
+        id,
+        seq,
+        kind: 'chat',
+        silent,
+        file,
+        filename,
+        size: file.size,
+        chunkSize,
+        chunks,
+        sent: 0,
+        cancelled: false,
+    };
+    st.outgoing.set(id, transfer);
+    send(st, {
+        t: 'chat-file',
+        id,
+        seq,
+        to: target,
+        name: filename,
+        size: file.size,
+        chunkSize,
+        chunks,
+        ...(from ? { from, fromName } : {}),
+    });
+    /* Chat attachments are auto-accepted, so there is no file-accept to wait
+     * for — start pumping immediately. */
+    void pump(st, transfer);
+}
+function onChatFileOffer(st, msg) {
+    if (!session)
+        return;
+    const problem = validateChatFile(msg);
+    if (problem) {
+        log('warn', `Rejected a malformed chat attachment from ${st.name}: ${problem}`);
+        send(st, { t: 'file-abort', id: typeof msg.id === 'string' ? msg.id : '', reason: problem });
+        return;
+    }
+    if (st.incoming.has(msg.seq))
+        throw new Error('Duplicate transfer sequence');
+    const host = st.role === 'host';
+    const from = host ? st.conn.peer : (msg.from || st.conn.peer);
+    const fromName = host ? st.name : msg.fromName ? sanitizeDisplayName(msg.fromName) : st.name;
+    /* Is this for us, or are we only the relay? */
+    const forUs = msg.to === CHAT_ROOM_TARGET || msg.to === localPeerId();
+    if (!host && !forUs)
+        return; // a guest should never see someone else's whisper
+    const filename = sanitizeFilename(msg.name);
+    const { mime, mediaType, playable } = safeMimeFor(filename);
+    st.incoming.set(msg.seq, {
+        id: msg.id,
+        seq: msg.seq,
+        kind: 'chat',
+        filename,
+        size: msg.size,
+        chunkSize: msg.chunkSize,
+        chunks: msg.chunks,
+        received: 0,
+        nextIndex: 0,
+        /* No consent gate: capped, in-memory, and part of a conversation the
+         * user opted into by joining the room. */
+        accepted: true,
+        parts: [],
+        mime,
+        mediaType,
+        playable,
+        lastCommit: 0,
+        chatTo: msg.to,
+        chatFrom: from,
+        chatFromName: fromName,
+        chatDisplay: forUs,
+    });
+    if (!forUs)
+        return; // pure relay — receive the bytes, show nothing
+    chat().addMessage({
+        id: msg.id,
+        senderId: from,
+        senderName: fromName,
+        targetPeerId: msg.to,
+        threadId: threadFor(msg.to, from),
+        mine: false,
+        file: {
+            name: filename,
+            size: msg.size,
+            type: mime,
+            blobUrl: null,
+            progress: 0,
+        },
+        timestamp: Date.now(),
+    });
+}
+/**
+ * Host only: pass a completed attachment on to the peers that can't reach
+ * its sender directly. The Blob is re-wrapped as a File and goes back out
+ * through the ordinary send path.
+ */
+function relayChatAttachment(st, inc, blob) {
+    if (!session || session.role !== 'host')
+        return;
+    const to = inc.chatTo ?? CHAT_ROOM_TARGET;
+    const targets = [];
+    if (to === CHAT_ROOM_TARGET) {
+        for (const other of session.conns.values()) {
+            if (other !== st && other.authenticated)
+                targets.push(other);
+        }
+    }
+    else if (to !== localPeerId()) {
+        const one = session.conns.get(to);
+        if (one?.authenticated)
+            targets.push(one);
+    }
+    if (targets.length === 0)
+        return;
+    const file = new File([blob], inc.filename, { type: inc.mime });
+    for (const target of targets) {
+        pushChatFile(target, file, inc.filename, inc.id, to, true, inc.chatFrom, inc.chatFromName);
+    }
+    log('info', `Relayed "${inc.filename}" to ${targets.length} peer(s).`);
 }
 /* ─────────────────────────────────────────────────────────────
  *  LIVE BROADCAST

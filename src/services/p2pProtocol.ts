@@ -81,6 +81,21 @@ export const MAX_ICE_CANDIDATES = 256;
 /** Tracks we are willing to receive from one broadcaster. */
 export const MAX_INCOMING_TRACKS = 4;
 
+/* ── Chat limits ───────────────────────────────────────────── */
+
+export const CHAT_MAX_TEXT_CHARS = 4000;
+/**
+ * Chat attachments are auto-accepted (a chat that asks permission per image
+ * is not a chat), so the ceiling is what bounds the abuse instead. It is
+ * deliberately ~128× smaller than the library push limit, and the host
+ * store-and-forwards at most this much when relaying to the room.
+ */
+export const CHAT_MAX_FILE_BYTES = 16 * 1024 * 1024; // 16 MiB
+/** Ring-buffer bound on the in-memory transcript. */
+export const CHAT_MAX_MESSAGES = 500;
+/** The reserved thread id for the room-wide conversation. */
+export const CHAT_ROOM_TARGET = 'ALL';
+
 /* ── Key derivation ────────────────────────────────────────── */
 
 /**
@@ -253,6 +268,72 @@ export interface MediaIceMsg {
   usernameFragment?: string | null;
 }
 
+/* ─────────────────────────────────────────────────────────────
+ *  CHAT
+ * ─────────────────────────────────────────────────────────────
+ *  ORIGIN IS STAMPED, NEVER CLAIMED
+ *  ───────────────────────────────
+ *  The room is a star: guests only have a connection to the host, so a
+ *  group message or a guest→guest whisper has to be relayed by the host.
+ *  That makes `from` forgeable in principle — so it is never read from a
+ *  peer that could be lying about it:
+ *
+ *    • Host receiving from a guest  → overwrites `from`/`fromName` with the
+ *      identity of the *connection the bytes arrived on*. A guest cannot
+ *      impersonate anyone, including the host.
+ *    • Guest receiving from the host → trusts the stamp, because the host
+ *      is the one peer it has cryptographically authenticated.
+ *
+ *  `to` is likewise re-checked by the relay: a whisper is forwarded to the
+ *  single named connection or dropped, never fanned out.
+ * ───────────────────────────────────────────────────────────── */
+
+/** Room message (`to: 'ALL'`) or whisper (`to: '<peer id>'`). */
+export interface ChatTextMsg {
+  t: 'chat';
+  id: string;
+  to: string;
+  text: string;
+  /** Relay-stamped origin. Ignored on the inbound hop from a guest. */
+  from?: string;
+  fromName?: string;
+}
+
+/**
+ * Announces a chat attachment. The bytes follow as ordinary framed chunks
+ * — same header, same ordering and size checks as a library push — so this
+ * adds a routing header, not a second transfer implementation.
+ */
+export interface ChatFileMsg {
+  t: 'chat-file';
+  id: string;
+  seq: number;
+  to: string;
+  name: string;
+  size: number;
+  chunkSize: number;
+  chunks: number;
+  from?: string;
+  fromName?: string;
+}
+
+/**
+ * Host → guests. Who else is in the room.
+ *
+ * Guests have no connection to each other, so without this they cannot
+ * open a whisper thread with anyone but the host. The entries are chat
+ * addresses only: they carry no connection, so a guest can message these
+ * peers (the host relays) but cannot push files to them — see
+ * `PeerInfo.direct`.
+ *
+ * Only the host may send it, and a guest that receives one from anything
+ * other than its host connection drops the connection.
+ */
+export interface RosterMsg {
+  t: 'roster';
+  peers: { id: string; name: string }[];
+}
+
 /** Courtesy notice before a clean disconnect. */
 export interface ByeMsg {
   t: 'bye';
@@ -274,6 +355,9 @@ export type WireMessage =
   | MediaOfferMsg
   | MediaAnswerMsg
   | MediaIceMsg
+  | ChatTextMsg
+  | ChatFileMsg
+  | RosterMsg
   | ByeMsg;
 
 /** The only two messages tolerated before a peer is authenticated. */
@@ -475,6 +559,9 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/** Fresh id for a chat message or transfer. */
+export const newMessageId = () => randomHex(12);
+
 /** Rejects a nonce that is missing, malformed or too short to be unguessable. */
 export function isValidNonce(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{32,128}$/.test(value);
@@ -544,6 +631,20 @@ export function sanitizeFilename(raw: unknown): string {
   return cleaned || 'received-file';
 }
 
+/**
+ * Chat text keeps newlines and tabs (messages are multi-line) but drops
+ * every other control character, so a peer cannot smuggle bidi overrides or
+ * terminal escapes into a bubble. Rendering is plain React text — there is
+ * no `dangerouslySetInnerHTML` anywhere in the chat UI — so this is defence
+ * in depth rather than the only thing standing between us and injection.
+ */
+const CHAT_CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+
+export function sanitizeChatText(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(CHAT_CONTROL_CHARS, '').slice(0, CHAT_MAX_TEXT_CHARS).trimEnd();
+}
+
 /** Display names are rendered in the peer list — keep them short and inert. */
 export function sanitizeDisplayName(raw: unknown): string {
   if (typeof raw !== 'string') return 'Peer';
@@ -576,6 +677,52 @@ export function validateFileOffer(msg: FileOfferMsg): string | null {
   /* The declared shape must be internally consistent — no lying about size. */
   const expected = msg.size === 0 ? 0 : Math.ceil(msg.size / msg.chunkSize);
   if (msg.chunks !== expected) return 'Inconsistent chunk count';
+  return null;
+}
+
+/* ── Chat validation ───────────────────────────────────────── */
+
+/** `to` must be the room sentinel or something shaped like a peer id. */
+function isValidChatTarget(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 128) return false;
+  if (value === CHAT_ROOM_TARGET) return true;
+  return value.startsWith(PEER_ID_PREFIX);
+}
+
+export function validateChatText(msg: ChatTextMsg): string | null {
+  if (typeof msg.id !== 'string' || !/^[0-9a-f]{8,64}$/.test(msg.id)) return 'Malformed message id';
+  if (!isValidChatTarget(msg.to)) return 'Malformed chat target';
+  if (typeof msg.text !== 'string') return 'Malformed chat text';
+  if (msg.text.length > CHAT_MAX_TEXT_CHARS) return 'Chat message exceeds the length limit';
+  return null;
+}
+
+export function validateChatFile(msg: ChatFileMsg): string | null {
+  if (typeof msg.id !== 'string' || !/^[0-9a-f]{8,64}$/.test(msg.id)) return 'Malformed message id';
+  if (!isValidChatTarget(msg.to)) return 'Malformed chat target';
+  if (!Number.isInteger(msg.seq) || msg.seq < 0 || msg.seq > 0xffffffff) return 'Malformed transfer sequence';
+  if (!Number.isInteger(msg.size) || msg.size < 0) return 'Malformed size';
+  if (msg.size > CHAT_MAX_FILE_BYTES) return 'Attachment exceeds the 16 MB chat limit';
+  if (!Number.isInteger(msg.chunkSize) || msg.chunkSize < 1 || msg.chunkSize > MAX_CHUNK_BYTES) {
+    return 'Malformed chunk size';
+  }
+  if (!Number.isInteger(msg.chunks) || msg.chunks < 0) return 'Malformed chunk count';
+  const expected = msg.size === 0 ? 0 : Math.ceil(msg.size / msg.chunkSize);
+  if (msg.chunks !== expected) return 'Inconsistent chunk count';
+  return null;
+}
+
+/** Bounds the roster so a malicious host cannot flood the peer list. */
+export function validateRoster(msg: RosterMsg): string | null {
+  if (!Array.isArray(msg.peers)) return 'Malformed roster';
+  if (msg.peers.length > 32) return 'Roster is too large';
+  for (const p of msg.peers) {
+    if (!p || typeof p !== 'object') return 'Malformed roster entry';
+    if (typeof p.id !== 'string' || !p.id.startsWith(PEER_ID_PREFIX) || p.id.length > 128) {
+      return 'Malformed roster peer id';
+    }
+    if (typeof p.name !== 'string') return 'Malformed roster peer name';
+  }
   return null;
 }
 

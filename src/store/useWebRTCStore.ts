@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useChatStore } from './useChatStore';
 
 /* ─────────────────────────────────────────────────────────────
  *  WEBRTC / P2P STATE
@@ -56,6 +57,16 @@ export interface PeerInfo {
   joinedAt: number;
   /** Wrong-password attempts, used for the per-peer lockout. */
   failedAttempts: number;
+  /**
+   * True when we hold an actual DataConnection to this peer.
+   *
+   * In the star topology a guest is only ever connected to the host, but it
+   * still needs to *know* about the other guests to open a whisper tab with
+   * them — the host publishes a roster for exactly that. Those entries are
+   * `direct: false`: chat reaches them (the host relays), file push does
+   * not, so anything that moves bulk bytes must filter on this.
+   */
+  direct: boolean;
 }
 
 export type TransferDirection = 'outgoing' | 'incoming';
@@ -167,6 +178,8 @@ interface WebRTCState {
   upsertPeer: (peer: PeerInfo) => void;
   patchPeer: (id: string, patch: Partial<PeerInfo>) => void;
   removePeer: (id: string) => void;
+  /** Guest side: replace the set of indirect (host-published) peers. */
+  applyRoster: (entries: { id: string; name: string }[]) => void;
 
   upsertTransfer: (transfer: TransferProgress) => void;
   patchTransfer: (id: string, patch: Partial<TransferProgress>) => void;
@@ -268,6 +281,31 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
 
   patchPeer: (id, patch) =>
     set((s) => ({ peers: s.peers.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+
+  /*
+   * Direct peers are ours and untouched; indirect ones are entirely the
+   * host's to declare, so they are replaced wholesale rather than merged —
+   * that way a peer the host dropped disappears here too.
+   */
+  applyRoster: (entries) =>
+    set((s) => {
+      const directs = s.peers.filter((p) => p.direct);
+      const known = new Set(directs.map((p) => p.id));
+      const indirect: PeerInfo[] = entries
+        .filter((e) => !known.has(e.id))
+        .map((e) => {
+          const prev = s.peers.find((p) => p.id === e.id);
+          return {
+            id: e.id,
+            name: e.name,
+            authenticated: true,
+            joinedAt: prev?.joinedAt ?? Date.now(),
+            failedAttempts: 0,
+            direct: false,
+          };
+        });
+      return { peers: [...directs, ...indirect] };
+    }),
 
   removePeer: (id) =>
     set((s) => ({
@@ -384,6 +422,15 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
       }
     }
 
+    /* 2b ─ Wipe the chat transcript and revoke every attachment URL.
+     *      Chat is the other place this tab holds peer-supplied bytes, and
+     *      "kill switch" has to mean all of them — not just file transfers. */
+    try {
+      useChatStore.getState().clearAllChat();
+    } catch (err) {
+      console.error('[LocalTube P2P] chat wipe error (continuing)', err);
+    }
+
     /* 3 ─ Stop any inbound media tracks we still hold a handle on. */
     if (activeStream) {
       for (const track of activeStream.getTracks()) {
@@ -421,6 +468,14 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
 /* ── selectors ─────────────────────────────────────────────── */
 
 export const selectAuthenticatedPeers = (s: WebRTCState) => s.peers.filter((p) => p.authenticated);
+
+/**
+ * Peers we hold an actual connection to. Anything that moves bulk bytes
+ * (file push, media calls) must use this rather than the full list, which
+ * also contains host-published peers reachable only via chat relay.
+ */
+export const selectDirectPeers = (s: WebRTCState) =>
+  s.peers.filter((p) => p.authenticated && p.direct);
 
 export const selectPendingIncoming = (s: WebRTCState) =>
   Object.values(s.transferProgress).filter(

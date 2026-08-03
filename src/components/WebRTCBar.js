@@ -1,11 +1,13 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Ban, Check, ChevronDown, Copy, Dices, Eye, EyeOff, Info, KeyRound, Loader2, Power, RadioTower, Send, Server, Share2, ShieldAlert, ShieldCheck, Unplug, UserCheck, Users, X, Zap, } from 'lucide-react';
+import { AlertTriangle, Ban, Check, ChevronDown, Copy, Dices, Eye, EyeOff, Info, KeyRound, Loader2, MessageSquare, Power, RadioTower, Send, Server, Share2, ShieldAlert, ShieldCheck, Unplug, UserCheck, Users, X, Zap, } from 'lucide-react';
 import { useWebRTCStore, selectPendingIncoming, } from '../store/useWebRTCStore';
 import { PASSWORD_MIN_LENGTH, ROOM_ID_MAX_DIGITS, ROOM_ID_MIN_DIGITS, isValidRoomId, randomRoomId, } from '../services/p2pProtocol';
+import { useChatStore, selectTotalUnread } from '../store/useChatStore';
 import { acceptIncomingFile, declineIncomingFile, shortId } from '../services/webrtcService';
 import ShareModal from './ShareModal';
+import ChatPanel from './ChatPanel';
 import { BroadcastControls } from './BroadcastView';
 /* ─────────────────────────────────────────────────────────────
  *  WEBRTC CONTROL BAR
@@ -29,10 +31,20 @@ export default function WebRTCBar() {
     const [shareOpen, setShareOpen] = useState(false);
     const live = status !== 'disconnected';
     const authedCount = peers.filter((p) => p.authenticated).length;
-    return (_jsxs(_Fragment, { children: [_jsxs("button", { onClick: () => setPanelOpen(true), className: `relative flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-content/80 transition hover:bg-content/10 ${live ? 'bg-emerald-500/10 text-emerald-400' : ''}`, "aria-label": "Peer-to-peer sharing", title: live ? `P2P live — room ${roomId}` : 'Peer-to-peer sharing (off)', children: [_jsx(Share2, { className: "h-5 w-5" }), _jsx(StatusDot, { status: status }), authedCount > 0 && (_jsx("span", { className: "text-xs font-semibold tabular-nums", children: authedCount })), pending.length > 0 && (_jsx("span", { className: "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white", children: pending.length }))] }), live && (_jsxs("button", { onClick: () => disconnectAll('Kill switch activated from the header'), className: "flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-3 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500", "aria-label": "Kill switch \u2014 disconnect all peers", title: "Kill switch \u2014 instantly destroy every P2P connection", children: [_jsx(Power, { className: "h-4 w-4" }), _jsx("span", { className: "hidden sm:inline", children: "Kill" })] })), panelOpen && (_jsx(ConnectionPanel, { onClose: () => setPanelOpen(false), onOpenShare: () => {
+    return (_jsxs(_Fragment, { children: [_jsxs("button", { onClick: () => setPanelOpen(true), className: `relative flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-content/80 transition hover:bg-content/10 ${live ? 'bg-emerald-500/10 text-emerald-400' : ''}`, "aria-label": "Peer-to-peer sharing", title: live ? `P2P live — room ${roomId}` : 'Peer-to-peer sharing (off)', children: [_jsx(Share2, { className: "h-5 w-5" }), _jsx(StatusDot, { status: status }), authedCount > 0 && (_jsx("span", { className: "text-xs font-semibold tabular-nums", children: authedCount })), pending.length > 0 && (_jsx("span", { className: "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white", children: pending.length }))] }), live && _jsx(ChatToggle, {}), live && (_jsxs("button", { onClick: () => disconnectAll('Kill switch activated from the header'), className: "flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-red-600 px-3 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500", "aria-label": "Kill switch \u2014 disconnect all peers", title: "Kill switch \u2014 instantly destroy every P2P connection", children: [_jsx(Power, { className: "h-4 w-4" }), _jsx("span", { className: "hidden sm:inline", children: "Kill" })] })), panelOpen && (_jsx(ConnectionPanel, { onClose: () => setPanelOpen(false), onOpenShare: () => {
                     setShareOpen(true);
                     setPanelOpen(false);
-                } })), _jsx(ShareModal, { open: shareOpen, onClose: () => setShareOpen(false) }), _jsx(IncomingOfferToasts, { onOpenShare: () => setShareOpen(true) })] }));
+                } })), _jsx(ShareModal, { open: shareOpen, onClose: () => setShareOpen(false) }), _jsx(ChatPanel, {}), _jsx(IncomingOfferToasts, { onOpenShare: () => setShareOpen(true) })] }));
+}
+/**
+ * Header entry point for chat. The badge counts every thread, so a whisper
+ * arriving in a tab you aren't looking at is still visible from the header.
+ */
+function ChatToggle() {
+    const open = useChatStore((s) => s.open);
+    const toggleOpen = useChatStore((s) => s.toggleOpen);
+    const unread = useChatStore(selectTotalUnread);
+    return (_jsxs("button", { onClick: toggleOpen, className: `relative flex h-10 shrink-0 items-center justify-center rounded-full px-3 transition hover:bg-content/10 ${open ? 'bg-primary/15 text-primary' : 'text-content/80'}`, "aria-label": "Room chat", "aria-pressed": open, title: "Room chat (messages are never saved)", children: [_jsx(MessageSquare, { className: "h-5 w-5" }), unread > 0 && (_jsx("span", { className: "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white", children: unread > 9 ? '9+' : unread }))] }));
 }
 /* ─────────────────────────────────────────────────────────────
  *  PANEL

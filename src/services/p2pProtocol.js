@@ -71,6 +71,19 @@ export const MAX_ICE_CANDIDATE_CHARS = 1024;
 export const MAX_ICE_CANDIDATES = 256;
 /** Tracks we are willing to receive from one broadcaster. */
 export const MAX_INCOMING_TRACKS = 4;
+/* ── Chat limits ───────────────────────────────────────────── */
+export const CHAT_MAX_TEXT_CHARS = 4000;
+/**
+ * Chat attachments are auto-accepted (a chat that asks permission per image
+ * is not a chat), so the ceiling is what bounds the abuse instead. It is
+ * deliberately ~128× smaller than the library push limit, and the host
+ * store-and-forwards at most this much when relaying to the room.
+ */
+export const CHAT_MAX_FILE_BYTES = 16 * 1024 * 1024; // 16 MiB
+/** Ring-buffer bound on the in-memory transcript. */
+export const CHAT_MAX_MESSAGES = 500;
+/** The reserved thread id for the room-wide conversation. */
+export const CHAT_ROOM_TARGET = 'ALL';
 /* ── Key derivation ────────────────────────────────────────── */
 /**
  * Deliberately slow. A room-id squatter who captures one proof must spend
@@ -256,6 +269,8 @@ export function timingSafeEqual(a, b) {
     }
     return diff === 0;
 }
+/** Fresh id for a chat message or transfer. */
+export const newMessageId = () => randomHex(12);
 /** Rejects a nonce that is missing, malformed or too short to be unguessable. */
 export function isValidNonce(value) {
     return typeof value === 'string' && /^[0-9a-f]{32,128}$/.test(value);
@@ -314,6 +329,19 @@ export function sanitizeFilename(raw) {
         .slice(0, MAX_FILENAME_LENGTH);
     return cleaned || 'received-file';
 }
+/**
+ * Chat text keeps newlines and tabs (messages are multi-line) but drops
+ * every other control character, so a peer cannot smuggle bidi overrides or
+ * terminal escapes into a bubble. Rendering is plain React text — there is
+ * no `dangerouslySetInnerHTML` anywhere in the chat UI — so this is defence
+ * in depth rather than the only thing standing between us and injection.
+ */
+const CHAT_CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+export function sanitizeChatText(raw) {
+    if (typeof raw !== 'string')
+        return '';
+    return raw.replace(CHAT_CONTROL_CHARS, '').slice(0, CHAT_MAX_TEXT_CHARS).trimEnd();
+}
 /** Display names are rendered in the peer list — keep them short and inert. */
 export function sanitizeDisplayName(raw) {
     if (typeof raw !== 'string')
@@ -350,6 +378,64 @@ export function validateFileOffer(msg) {
     const expected = msg.size === 0 ? 0 : Math.ceil(msg.size / msg.chunkSize);
     if (msg.chunks !== expected)
         return 'Inconsistent chunk count';
+    return null;
+}
+/* ── Chat validation ───────────────────────────────────────── */
+/** `to` must be the room sentinel or something shaped like a peer id. */
+function isValidChatTarget(value) {
+    if (typeof value !== 'string' || value.length === 0 || value.length > 128)
+        return false;
+    if (value === CHAT_ROOM_TARGET)
+        return true;
+    return value.startsWith(PEER_ID_PREFIX);
+}
+export function validateChatText(msg) {
+    if (typeof msg.id !== 'string' || !/^[0-9a-f]{8,64}$/.test(msg.id))
+        return 'Malformed message id';
+    if (!isValidChatTarget(msg.to))
+        return 'Malformed chat target';
+    if (typeof msg.text !== 'string')
+        return 'Malformed chat text';
+    if (msg.text.length > CHAT_MAX_TEXT_CHARS)
+        return 'Chat message exceeds the length limit';
+    return null;
+}
+export function validateChatFile(msg) {
+    if (typeof msg.id !== 'string' || !/^[0-9a-f]{8,64}$/.test(msg.id))
+        return 'Malformed message id';
+    if (!isValidChatTarget(msg.to))
+        return 'Malformed chat target';
+    if (!Number.isInteger(msg.seq) || msg.seq < 0 || msg.seq > 0xffffffff)
+        return 'Malformed transfer sequence';
+    if (!Number.isInteger(msg.size) || msg.size < 0)
+        return 'Malformed size';
+    if (msg.size > CHAT_MAX_FILE_BYTES)
+        return 'Attachment exceeds the 16 MB chat limit';
+    if (!Number.isInteger(msg.chunkSize) || msg.chunkSize < 1 || msg.chunkSize > MAX_CHUNK_BYTES) {
+        return 'Malformed chunk size';
+    }
+    if (!Number.isInteger(msg.chunks) || msg.chunks < 0)
+        return 'Malformed chunk count';
+    const expected = msg.size === 0 ? 0 : Math.ceil(msg.size / msg.chunkSize);
+    if (msg.chunks !== expected)
+        return 'Inconsistent chunk count';
+    return null;
+}
+/** Bounds the roster so a malicious host cannot flood the peer list. */
+export function validateRoster(msg) {
+    if (!Array.isArray(msg.peers))
+        return 'Malformed roster';
+    if (msg.peers.length > 32)
+        return 'Roster is too large';
+    for (const p of msg.peers) {
+        if (!p || typeof p !== 'object')
+            return 'Malformed roster entry';
+        if (typeof p.id !== 'string' || !p.id.startsWith(PEER_ID_PREFIX) || p.id.length > 128) {
+            return 'Malformed roster peer id';
+        }
+        if (typeof p.name !== 'string')
+            return 'Malformed roster peer name';
+    }
     return null;
 }
 /* ── In-band signaling validation ──────────────────────────── */

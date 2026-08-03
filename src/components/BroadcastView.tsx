@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { useWebRTCStore, selectAuthenticatedPeers } from '../store/useWebRTCStore';
+import { useWebRTCStore, selectDirectPeers } from '../store/useWebRTCStore';
 import {
   captureLiveStream,
   getActiveVideoElement,
@@ -45,8 +45,14 @@ interface ControlsProps {
   onNavigate?: () => void;
 }
 
-export function BroadcastControls({ compact = false, onNavigate }: ControlsProps) {
-  const peers = useWebRTCStore(selectAuthenticatedPeers);
+/**
+ * Everything needed to start or stop a broadcast, shared by the panel
+ * controls and the in-player button so the two can never diverge on what
+ * "ready" means or how failures are reported.
+ */
+function useBroadcastControl(onNavigate?: () => void) {
+  /* Media is a real peer connection, not something the host can relay. */
+  const peers = useWebRTCStore(selectDirectPeers);
   const broadcastTitle = useWebRTCStore((s) => s.broadcastTitle);
   const viewers = useWebRTCStore((s) => s.broadcastViewers);
   const logEvent = useWebRTCStore((s) => s.logEvent);
@@ -59,14 +65,22 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
 
   useEffect(() => subscribeActiveVideo(setVideoEl), []);
 
-  /* readyState changes without notifying React, so poll lightly while idle
-   * rather than wiring listeners onto an element we don't own. */
+  /*
+   * readyState changes without notifying React, so poll lightly while idle
+   * rather than wiring listeners onto an element we don't own.
+   *
+   * Gated on having peers because this hook is now also mounted by the
+   * in-player button, which is on screen for every video. Solo viewing —
+   * the overwhelmingly common case — must not pay for a timer that exists
+   * only to enable a button that isn't rendered.
+   */
   const [, forceTick] = useState(0);
+  const peerCount = peers.length;
   useEffect(() => {
-    if (broadcastTitle) return;
+    if (broadcastTitle || peerCount === 0) return;
     const id = setInterval(() => forceTick((n) => n + 1), 1000);
     return () => clearInterval(id);
-  }, [broadcastTitle]);
+  }, [broadcastTitle, peerCount]);
 
   const title = useMemo(
     () => videos.find((v) => v.id === currentVideoId)?.title ?? 'Live broadcast',
@@ -106,6 +120,12 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
     : peers.length === 0
       ? 'No verified peers to broadcast to'
       : `Broadcast "${title}" to ${peers.length} peer${peers.length === 1 ? '' : 's'}`;
+
+  return { peers, viewers, live, ready, canStart, busy, error, reason, title, go };
+}
+
+export function BroadcastControls({ compact = false, onNavigate }: ControlsProps) {
+  const { viewers, live, canStart, busy, error, reason, go } = useBroadcastControl(onNavigate);
 
   if (compact) {
     return (
@@ -177,6 +197,55 @@ export function BroadcastControls({ compact = false, onNavigate }: ControlsProps
         </p>
       )}
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ *  IN-PLAYER GO LIVE BUTTON
+ * ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Sits in the player's control bar next to Theater / Ambient.
+ *
+ * It renders NOTHING unless at least one peer has completed the password
+ * handshake. Solo viewing — which is what LocalTube is most of the time —
+ * therefore looks exactly as it did before this feature existed, and the
+ * button can never be the thing that reveals a P2P session is possible.
+ */
+export function PlayerGoLiveButton() {
+  const { peers, viewers, live, canStart, busy, error, reason, go } = useBroadcastControl();
+
+  if (peers.length === 0) return null;
+
+  if (live) {
+    return (
+      <button
+        onClick={stopBroadcast}
+        className="flex h-9 items-center gap-1.5 rounded-full bg-red-600 px-3 text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500"
+        title={`Live to ${viewers.length} viewer${viewers.length === 1 ? '' : 's'} — click to stop`}
+        aria-label="Stop broadcasting"
+      >
+        <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+        <span className="text-[11px] font-black uppercase tracking-wider">Live</span>
+        {viewers.length > 0 && (
+          <span className="text-[11px] font-bold tabular-nums opacity-80">{viewers.length}</span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={go}
+      disabled={!canStart}
+      title={error ?? reason}
+      aria-label="Go live"
+      className={`flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 disabled:cursor-not-allowed disabled:opacity-40 ${
+        error ? 'text-amber-500' : 'text-content/70 hover:text-content'
+      }`}
+    >
+      {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <RadioTower className="h-5 w-5" />}
+    </button>
   );
 }
 

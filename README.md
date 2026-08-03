@@ -76,6 +76,7 @@ A direct, end-to-end-encrypted link between two browsers — no upload, no relay
 | 📤 | **Selective file push** | Tick specific items from *your* library and send them. The receiver must **accept** before a single byte is buffered. |
 | 📡 | **Live Broadcast** | `captureStream()` on the video you're watching is streamed in real time to verified peers. They see **frames, not the file** — no copy lands on their disk. |
 | ⚡ | **Dual-mode signaling** | Broadcasting works on the **public broker with zero setup** by tunnelling the media invitation through the encrypted DataChannel — or via a self-hosted PeerServer if you prefer. [Details ↓](#broadcasting-dual-mode-media-signaling) |
+| 💬 | **Zero-persistence chat** | Room chat + private whispers, with image and file attachments. Nothing is ever written to disk — [details ↓](#zero-persistence-chat) |
 | 🛋️ | **Watch Party Lobby** | A room UI with peer list, verification badges, and a waiting state that becomes the player the moment the host goes live. |
 | 🧯 | **Kill Switch** | `peer.destroy()` + every `conn.close()` + every native `RTCPeerConnection.close()` + every `track.stop()` + `revokeObjectURL()` on all received blobs, in one click. |
 
@@ -107,6 +108,27 @@ The passphrase **never goes on the wire in either direction**. Both nonces are b
 - **Filenames are reduced to a safe basename** — no path separators, no control characters, no leading dots, bounded length.
 - **Backpressure** — chunks (16–64 KB, negotiated from `sctp.maxMessageSize`) are gated on `bufferedAmount`, and files are read lazily via `File.slice()` so a 4 GB video is never resident in memory.
 - **Guests never accept inbound connections** (star topology), and media calls from unauthenticated peers are rejected outright.
+
+### Zero-persistence chat
+
+Room chat, private whispers, and image/file attachments — all of it in RAM only.
+
+| | |
+|---|---|
+| **Room + whispers** | One `Room (All)` thread plus a private thread per peer. A whisper is forwarded to exactly one connection, never fanned out. |
+| **Attachments** | Images render inline with click-to-zoom; other files become a card with a Save button. Capped at **16 MB** and auto-accepted (a chat that asks permission per image is not a chat) — the library file push keeps its explicit consent step. |
+| **Nothing is stored** | `useChatStore` is never wrapped in `persist()` and touches no `localStorage`, `sessionStorage`, `IndexedDB` or disk API. Refresh the tab and the transcript is gone. There is no export and no recovery. |
+| **Blob hygiene** | Attachments are Blob URLs, which pin their bytes for the life of the document. All three removal paths — ring-buffer eviction at 500 messages, per-peer cleanup, and the kill switch — route through one `revoke()` helper. |
+| **Kill switch** | `disconnectAll()` calls `clearAllChat()`: transcript emptied, every attachment URL revoked. Verified by fetching a URL after the wipe and confirming it no longer resolves. |
+
+**Guest↔guest messages are relayed by the host**, because the room is a star and guests have no connection to each other. Two rules make that safe, and both are enforced in code rather than trusted from the wire:
+
+- **Origin is stamped, never claimed.** When the host relays, it overwrites `from` with the identity of the connection the bytes actually arrived on. Tested by patching a guest's `RTCDataChannel.send` to forge `from`/`fromName` as the host — the message still displayed under the sender's real name.
+- **Whispers are not fanned out.** A relayed whisper reaches one connection, and the relaying host does not display it. Tested with three peers: the host forwarded a guest→guest whisper without it appearing in the host's own transcript.
+
+The host also publishes a **roster** so guests can open a whisper thread with peers they have no connection to. Those entries are marked `direct: false` — chat reaches them, file push and media do not, so anything moving bulk bytes filters on it.
+
+> **Not stored ≠ not seen.** A room message is readable by everyone in the room, and a guest→guest whisper passes through the host's browser in plaintext (the DataChannel is encrypted hop-by-hop, but the host is a hop). Whispers are private *from other guests*, not from the host. Do not treat this as end-to-end encrypted messaging.
 
 ### Broadcasting: dual-mode media signaling
 
@@ -152,6 +174,9 @@ LocalTube/
 │   │   │                       #    of truth: library, navigation, player, layout,
 │   │   │                       #    themes, favorites/playlists/tags, watch progress,
 │   │   │                       #    display prefs. Persists ONLY prefs to localStorage.
+│   │   ├── useChatStore.ts     # 💬 Chat transcript — 100% VOLATILE. No persist(), no
+│   │   │                       #    storage API, ring-buffered at 500 messages, and the
+│   │   │                       #    single owner of every attachment Blob URL's lifetime.
 │   │   └── useWebRTCStore.ts   # 🤝 P2P session state — NEVER persisted, never touches
 │   │                           #    localStorage: room id, passphrase, peers, transfer
 │   │                           #    progress, active stream + the disconnectAll()
@@ -196,12 +221,16 @@ LocalTube/
 │       ├── ThemeSwitcher.tsx   # Theme picker with live swatches
 │       ├── SettingsModal.tsx   # Data Management: backup export / restore
 │       ├── WebRTCBar.tsx       # 🤝 P2P entry point: create/join room, peer list,
-│       │                       #    security log, consent toasts + KILL SWITCH
+│       │                       #    security log, chat toggle + KILL SWITCH
+│       ├── ChatPanel.tsx       # 💬 Chat drawer: room + whisper tabs, image/file
+│       │                       #    bubbles, click-to-zoom, emoji, attach. Renders
+│       │                       #    Blob URLs the store owns — mints/revokes none.
 │       ├── WatchPartyLobby.tsx # 🛋️ The room: waiting → connecting → watching, over
 │       │                       #    one persistent <video> (never remounts mid-stream)
 │       ├── ShareModal.tsx      # 📤 Pick library items + peers → push; transfer
 │       │                       #    progress; accept/decline + view/save received files
-│       └── BroadcastView.tsx   # 📡 Host "Go live" controls + fullscreen viewer
+│       └── BroadcastView.tsx   # 📡 Host "Go live" controls, the in-player LIVE
+│                               #    button, and the fullscreen viewer
 │
 ├── tailwind.config.js          # Semantic color tokens mapped to CSS variables
 ├── vite.config.ts              # Vite + React plugin (dev server only)
@@ -319,7 +348,8 @@ npm run preview    # serve the production build locally
 2. **Host a room** → generate a Room ID and set a strong passphrase → **Open room**.
 3. Share the digits and passphrase with your guest **over a channel you trust** — anyone who has both can join.
 4. The guest picks **Join a room**, enters the same two values, and lands in the Watch Party Lobby once verified.
-5. **Send files** pushes selected library items; **Go live** broadcasts the video you're currently playing.
+5. **Send files** pushes selected library items; **Go live** broadcasts the video you're currently playing. Once a peer is verified, a **Go Live** button also appears directly on the player's control bar (next to Theater / Ambient) and turns into a pulsing **LIVE** badge you can click to stop. With no peers connected it is not rendered at all, so solo viewing is unchanged.
+6. The **chat icon** in the header opens the room chat — group thread, per-peer private whispers, and image/file attachments. Nothing there is ever written to disk.
 
 > ⚡ **Live Broadcast works with no setup.** It defaults to the in-band relay, which tunnels the video invitation through the encrypted DataChannel instead of the public broker. If you'd rather run your own signaling server (`npx peer --port 9000`), switch to **Self-hosted PeerServer** under *Advanced — live video & signaling* in **both** browsers. See [the section above](#broadcasting-dual-mode-media-signaling) for the trade-offs.
 
@@ -352,6 +382,10 @@ These are planned and **not currently in the codebase**:
 | P2P: session secrets | ✅ Verified | `useWebRTCStore` is **not** wrapped in `persist`; room id and passphrase die with the tab |
 | P2P: kill switch | ✅ Verified | Transport destroyed first, then blobs revoked and state wiped; propagation to the remote peer tested. Relayed `RTCPeerConnection`s observed reaching `closed` and inbound tracks `ended` after one click |
 | P2P: relay signaling | ✅ Verified | `media-*` messages are post-auth only; SDP/ICE bounds-checked and candidate-capped; answering side adds no tracks, so it is receive-only by construction |
+| Chat: zero persistence | ✅ Verified | No `persist()`, no storage API in the chat path; after a session, `indexedDB.databases()` empty and `localStorage` held only the two pre-existing LocalTube keys with no chat content |
+| Chat: blob revocation | ✅ Verified | Attachment URL fetched successfully before the kill switch and failed to resolve after it |
+| Chat: origin spoofing | ✅ Verified | Forged `from`/`fromName` injected at the guest's `RTCDataChannel.send` were discarded; the host attributed the message to the real connection |
+| Chat: whisper isolation | ✅ Verified | Three-peer test: host relayed a guest→guest whisper without displaying it |
 
 **Recommended production hardening:** ship a strict Content-Security-Policy. Without P2P:
 `default-src 'self'; connect-src 'none'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'`

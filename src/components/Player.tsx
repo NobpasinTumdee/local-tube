@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { PlayCircle, X, Sparkles } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import AmbientGlow from './AmbientGlow';
+import { PlayerGoLiveButton } from './BroadcastView';
 import { setActiveVideoElement } from '../services/mediaElementRegistry';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
@@ -435,6 +436,9 @@ export default function Player() {
                   </span>
 
                   <div className="flex-1" />
+
+                  {/* Go live — renders nothing unless a verified peer is connected */}
+                  <PlayerGoLiveButton />
 
                   {/* ambient glow toggle */}
                   <button
