@@ -77,6 +77,7 @@ A direct, end-to-end-encrypted link between two browsers — no upload, no relay
 | 📡 | **Live Broadcast** | `captureStream()` on the video you're watching is streamed in real time to verified peers. They see **frames, not the file** — no copy lands on their disk. |
 | ⚡ | **Dual-mode signaling** | Broadcasting works on the **public broker with zero setup** by tunnelling the media invitation through the encrypted DataChannel — or via a self-hosted PeerServer if you prefer. [Details ↓](#broadcasting-dual-mode-media-signaling) |
 | 💬 | **Zero-persistence chat** | Room chat + private whispers, with image and file attachments. Nothing is ever written to disk — [details ↓](#zero-persistence-chat) |
+| 🎟️ | **Instant invite links** | One click to join. Credentials ride in the URL **fragment**, so they never reach a server log or proxy — [details ↓](#instant-invite-links) |
 | 🛋️ | **Watch Party Lobby** | A room UI with peer list, verification badges, and a waiting state that becomes the player the moment the host goes live. |
 | 🧯 | **Kill Switch** | `peer.destroy()` + every `conn.close()` + every native `RTCPeerConnection.close()` + every `track.stop()` + `revokeObjectURL()` on all received blobs, in one click. |
 
@@ -108,6 +109,28 @@ The passphrase **never goes on the wire in either direction**. Both nonces are b
 - **Filenames are reduced to a safe basename** — no path separators, no control characters, no leading dots, bounded length.
 - **Backpressure** — chunks (16–64 KB, negotiated from `sctp.maxMessageSize`) are gated on `bufferedAmount`, and files are read lazily via `File.slice()` so a 4 GB video is never resident in memory.
 - **Guests never accept inbound connections** (star topology), and media calls from unauthenticated peers are rejected outright.
+
+### Instant invite links
+
+The host can copy a one-click link instead of dictating a Room ID and passphrase:
+
+```
+https://your-host/#/p2p-join?d=eyJ2IjoxLCJyIjoiNDgyOTEzIiwicCI6Ii4uLiJ9
+```
+
+**Everything after `#` is stripped by the browser before the request goes out.** The credentials never appear in the request line, so they cannot reach a server access log, an intercepting proxy, or a CDN edge log — which is precisely why a query string would be the wrong place for them. The fragment is also excluded from the `Referer` header.
+
+| | |
+|---|---|
+| **Never on the network** | Verified: a cold load of an invite URL made **zero** non-localhost requests and did not even fetch PeerJS. |
+| **Scrubbed on arrival** | `history.replaceState` clears the fragment *before* the prompt renders, so the password is out of the address bar whatever the user does next. It replaces the current entry, so Back cannot return to it. `search` is preserved. |
+| **A link cannot join for you** | The prompt is not a formality. Joining reveals your IP to the peer and loads PeerJS — the app's whole opt-in guarantee. Credentials are held in memory while you decide; nothing touches the network until you press **Instant Join**. |
+| **Carries the signaling server** | If the host runs their own PeerServer, the invite says so and the prompt shows which host and port — a guest on the public broker would otherwise never find the room. Bounded and shape-checked on parse. |
+| **Base64 is not encryption** | It stops shoulder-surfing and screen-shares. It is trivially reversible and is not a confidentiality control. |
+
+Both encodings parse: the base64url payload above (what we emit) and the readable `#/p2p-join?room=123456&pwd=secret` form.
+
+> ⚠️ **An invite link is a bearer credential.** Anyone who has it has the room, and it still lands in your clipboard, your browser history, and whatever you sent it over. A messenger or mail server that sees the link has the room. No amount of client-side care changes that — the UI says so plainly next to the button.
 
 ### Zero-persistence chat
 
@@ -201,6 +224,9 @@ LocalTube/
 │   │   │                        #    a concurrency-limited queue (returns data: URL).
 │   │   ├── layoutGrid.ts       # Grid template → inline CSS-grid styles + DnD MIME types
 │   │   ├── backupUtils.ts      # Export/import user-data JSON (validate + sanitize)
+│   │   ├── p2pInviteUtils.ts   # 🎟️ Invite links: build/parse a base64url payload that
+│   │   │                        #    lives ONLY in the URL fragment, plus the
+│   │   │                        #    replaceState scrub. Hostile input → null.
 │   │   └── format.ts           # Duration / size / relative-time / resolution helpers
 │   │
 │   └── components/
@@ -222,6 +248,8 @@ LocalTube/
 │       ├── SettingsModal.tsx   # Data Management: backup export / restore
 │       ├── WebRTCBar.tsx       # 🤝 P2P entry point: create/join room, peer list,
 │       │                       #    security log, chat toggle + KILL SWITCH
+│       ├── InviteJoinModal.tsx # 🎟️ Detects an invite in the hash, scrubs it, then
+│       │                       #    ASKS. A link never starts the network by itself.
 │       ├── ChatPanel.tsx       # 💬 Chat drawer: room + whisper tabs, image/file
 │       │                       #    bubbles, click-to-zoom, emoji, attach. Renders
 │       │                       #    Blob URLs the store owns — mints/revokes none.
@@ -346,7 +374,7 @@ npm run preview    # serve the production build locally
 
 1. Click the **share icon** in the header (it's also on the welcome screen — a guest who only wants to watch or receive doesn't need a folder).
 2. **Host a room** → generate a Room ID and set a strong passphrase → **Open room**.
-3. Share the digits and passphrase with your guest **over a channel you trust** — anyone who has both can join.
+3. Share the digits and passphrase with your guest **over a channel you trust** — anyone who has both can join. Or press **Copy invite link** for a one-click join URL (same caveat: anyone holding it can join).
 4. The guest picks **Join a room**, enters the same two values, and lands in the Watch Party Lobby once verified.
 5. **Send files** pushes selected library items; **Go live** broadcasts the video you're currently playing. Once a peer is verified, a **Go Live** button also appears directly on the player's control bar (next to Theater / Ambient) and turns into a pulsing **LIVE** badge you can click to stop. With no peers connected it is not rendered at all, so solo viewing is unchanged.
 6. The **chat icon** in the header opens the room chat — group thread, per-peer private whispers, and image/file attachments. Nothing there is ever written to disk.
@@ -386,6 +414,10 @@ These are planned and **not currently in the codebase**:
 | Chat: blob revocation | ✅ Verified | Attachment URL fetched successfully before the kill switch and failed to resolve after it |
 | Chat: origin spoofing | ✅ Verified | Forged `from`/`fromName` injected at the guest's `RTCDataChannel.send` were discarded; the host attributed the message to the real connection |
 | Chat: whisper isolation | ✅ Verified | Three-peer test: host relayed a guest→guest whisper without displaying it |
+| Invite: no server leakage | ✅ Verified | Loading an invite URL produced zero non-localhost requests and did not fetch PeerJS; credentials sit only in the fragment |
+| Invite: URL scrubbed | ✅ Verified | `location.href` back to origin before the prompt rendered, on both the page-load and `hashchange` paths |
+| Invite: no drive-by join | ✅ Verified | PeerJS loaded only after the user pressed Instant Join, never on link open |
+| Invite: hostile input | ✅ Verified | 14-case battery — bad route, corrupt base64, non-JSON, arrays, wrong version, out-of-range room/password, 5 KB hash — all return `null`; unknown payload keys dropped, `Object.prototype` untouched; signaling host/port/path bounds-checked |
 
 **Recommended production hardening:** ship a strict Content-Security-Policy. Without P2P:
 `default-src 'self'; connect-src 'none'; img-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'`

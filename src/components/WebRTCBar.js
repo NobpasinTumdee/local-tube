@@ -1,10 +1,11 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Ban, Check, ChevronDown, Copy, Dices, Eye, EyeOff, Info, KeyRound, Loader2, MessageSquare, Power, RadioTower, Send, Server, Share2, ShieldAlert, ShieldCheck, Unplug, UserCheck, Users, X, Zap, } from 'lucide-react';
+import { AlertTriangle, Ban, Check, ChevronDown, Copy, Dices, Eye, EyeOff, Info, KeyRound, Link as LinkIcon, Loader2, MessageSquare, Power, RadioTower, Send, Server, Share2, ShieldAlert, ShieldCheck, Unplug, UserCheck, Users, X, Zap, } from 'lucide-react';
 import { useWebRTCStore, selectPendingIncoming, } from '../store/useWebRTCStore';
 import { PASSWORD_MIN_LENGTH, ROOM_ID_MAX_DIGITS, ROOM_ID_MIN_DIGITS, isValidRoomId, randomRoomId, } from '../services/p2pProtocol';
 import { useChatStore, selectTotalUnread } from '../store/useChatStore';
+import { generateInviteLink } from '../utils/p2pInviteUtils';
 import { acceptIncomingFile, declineIncomingFile, shortId } from '../services/webrtcService';
 import ShareModal from './ShareModal';
 import ChatPanel from './ChatPanel';
@@ -196,7 +197,7 @@ function LiveSession({ onOpenShare, onClose }) {
             setTimeout(() => setCopied(false), 1500);
         }, () => undefined);
     }
-    return (_jsxs("div", { className: "p-5", children: [_jsxs("div", { className: "flex items-center gap-3 rounded-xl border border-content/10 bg-content/[0.03] p-3", children: [_jsxs("div", { className: "min-w-0 flex-1", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-content/40", children: role === 'host' ? 'Hosting room' : 'Joined room' }), _jsx("p", { className: "font-mono text-2xl tracking-[0.25em] text-content", children: roomId })] }), _jsxs("button", { onClick: copyRoom, className: "flex h-9 items-center gap-1.5 rounded-lg border border-content/10 bg-content/5 px-3 text-xs font-medium text-content/70 transition hover:bg-content/10 hover:text-content", children: [copied ? _jsx(Check, { className: "h-3.5 w-3.5 text-emerald-400" }) : _jsx(Copy, { className: "h-3.5 w-3.5" }), copied ? 'Copied' : 'Copy'] })] }), _jsxs("p", { className: "mt-2 flex items-center gap-1.5 text-[11px] text-content/40", children: [signalingMode === 'default-relay' ? (_jsx(Zap, { className: "h-3 w-3 text-emerald-400" })) : (_jsx(Server, { className: "h-3 w-3 text-amber-500" })), "Live video:", ' ', _jsx("span", { className: "font-medium text-content/60", children: signalingMode === 'default-relay' ? 'in-band relay' : 'native PeerJS routing' })] }), status === 'connecting' && (_jsxs("p", { className: "mt-3 flex items-center gap-2 text-xs text-content/50", children: [_jsx(Loader2, { className: "h-3.5 w-3.5 animate-spin" }), "Waiting for the handshake to complete\u2026"] })), lastError && (_jsxs("div", { className: "mt-3 flex items-start gap-2 rounded-xl bg-red-500/10 p-3 text-xs text-red-400", children: [_jsx(AlertTriangle, { className: "mt-0.5 h-4 w-4 shrink-0" }), _jsx("span", { className: "leading-relaxed", children: lastError })] })), _jsxs("div", { className: "mt-4", children: [_jsxs("h3", { className: "flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-content/50", children: [_jsx(Users, { className: "h-3.5 w-3.5" }), "Peers (", authed.length, "/", peers.length, ")"] }), _jsxs("div", { className: "mt-2 space-y-1.5", children: [peers.length === 0 && (_jsx("p", { className: "rounded-xl border border-dashed border-content/10 px-3 py-4 text-center text-xs text-content/40", children: role === 'host'
+    return (_jsxs("div", { className: "p-5", children: [_jsxs("div", { className: "flex items-center gap-3 rounded-xl border border-content/10 bg-content/[0.03] p-3", children: [_jsxs("div", { className: "min-w-0 flex-1", children: [_jsx("p", { className: "text-xs font-semibold uppercase tracking-wide text-content/40", children: role === 'host' ? 'Hosting room' : 'Joined room' }), _jsx("p", { className: "font-mono text-2xl tracking-[0.25em] text-content", children: roomId })] }), _jsxs("button", { onClick: copyRoom, className: "flex h-9 items-center gap-1.5 rounded-lg border border-content/10 bg-content/5 px-3 text-xs font-medium text-content/70 transition hover:bg-content/10 hover:text-content", children: [copied ? _jsx(Check, { className: "h-3.5 w-3.5 text-emerald-400" }) : _jsx(Copy, { className: "h-3.5 w-3.5" }), copied ? 'Copied' : 'Copy'] })] }), role === 'host' && _jsx(InviteLinkButton, {}), _jsxs("p", { className: "mt-2 flex items-center gap-1.5 text-[11px] text-content/40", children: [signalingMode === 'default-relay' ? (_jsx(Zap, { className: "h-3 w-3 text-emerald-400" })) : (_jsx(Server, { className: "h-3 w-3 text-amber-500" })), "Live video:", ' ', _jsx("span", { className: "font-medium text-content/60", children: signalingMode === 'default-relay' ? 'in-band relay' : 'native PeerJS routing' })] }), status === 'connecting' && (_jsxs("p", { className: "mt-3 flex items-center gap-2 text-xs text-content/50", children: [_jsx(Loader2, { className: "h-3.5 w-3.5 animate-spin" }), "Waiting for the handshake to complete\u2026"] })), lastError && (_jsxs("div", { className: "mt-3 flex items-start gap-2 rounded-xl bg-red-500/10 p-3 text-xs text-red-400", children: [_jsx(AlertTriangle, { className: "mt-0.5 h-4 w-4 shrink-0" }), _jsx("span", { className: "leading-relaxed", children: lastError })] })), _jsxs("div", { className: "mt-4", children: [_jsxs("h3", { className: "flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-content/50", children: [_jsx(Users, { className: "h-3.5 w-3.5" }), "Peers (", authed.length, "/", peers.length, ")"] }), _jsxs("div", { className: "mt-2 space-y-1.5", children: [peers.length === 0 && (_jsx("p", { className: "rounded-xl border border-dashed border-content/10 px-3 py-4 text-center text-xs text-content/40", children: role === 'host'
                                     ? 'Nobody has joined yet. Share the room ID and password over a channel you trust.'
                                     : 'Connecting to the host…' })), peers.map((p) => (_jsxs("div", { className: "flex items-center gap-2 rounded-xl border border-content/10 bg-content/[0.03] px-3 py-2", children: [p.authenticated ? (_jsx(UserCheck, { className: "h-4 w-4 shrink-0 text-emerald-400" })) : (_jsx(ShieldAlert, { className: "h-4 w-4 shrink-0 text-amber-500" })), _jsxs("div", { className: "min-w-0 flex-1", children: [_jsx("p", { className: "truncate text-sm font-medium text-content", children: p.name }), _jsx("p", { className: "truncate font-mono text-[10px] text-content/35", children: shortId(p.id) })] }), _jsx("span", { className: `shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${p.authenticated
                                             ? 'bg-emerald-500/15 text-emerald-400'
@@ -208,6 +209,49 @@ function LiveSession({ onOpenShare, onClose }) {
                                             : e.level === 'warn'
                                                 ? 'text-amber-500'
                                                 : 'text-content/60', children: e.message })] }, e.id)))] })] }), _jsxs("div", { className: "mt-5 rounded-xl border border-red-500/30 bg-red-500/[0.07] p-3", children: [_jsxs("div", { className: "flex items-start gap-2", children: [_jsx(Ban, { className: "mt-0.5 h-4 w-4 shrink-0 text-red-400" }), _jsxs("p", { className: "text-xs leading-relaxed text-content/70", children: ["Instantly destroys the signaling socket, every data channel and every media stream, and releases received files from memory.", heldFiles > 0 && (_jsxs("span", { className: "font-semibold text-red-400", children: [' ', heldFiles, " received file", heldFiles === 1 ? '' : 's', " will be discarded \u2014 save", ' ', heldFiles === 1 ? 'it' : 'them', " first if you want to keep ", heldFiles === 1 ? 'it' : 'them', "."] }))] })] }), _jsxs("button", { onClick: () => disconnectAll('Kill switch activated'), className: "mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500 active:scale-[0.99]", children: [_jsx(Unplug, { className: "h-5 w-5" }), "Disconnect all"] })] })] }));
+}
+/* ─────────────────────────────────────────────────────────────
+ *  INVITE LINK
+ * ─────────────────────────────────────────────────────────────
+ *  The link carries the room password in its fragment, which is what
+ *  makes one-click joining possible and what makes it a bearer
+ *  credential. The copy exists to make sure nobody learns that the hard
+ *  way: it says plainly that whoever holds the link holds the room.
+ * ───────────────────────────────────────────────────────────── */
+function InviteLinkButton() {
+    const roomId = useWebRTCStore((s) => s.roomId);
+    const password = useWebRTCStore((s) => s.password);
+    const signalingMode = useWebRTCStore((s) => s.signalingMode);
+    const signalingServer = useWebRTCStore((s) => s.signalingServer);
+    const [copied, setCopied] = useState(false);
+    const [error, setError] = useState(null);
+    useEffect(() => {
+        if (!copied)
+            return;
+        const id = setTimeout(() => setCopied(false), 2000);
+        return () => clearTimeout(id);
+    }, [copied]);
+    async function copyInvite() {
+        if (!roomId || !password)
+            return;
+        setError(null);
+        try {
+            const link = generateInviteLink(roomId, password, {
+                signalingMode,
+                signaling: signalingServer ?? undefined,
+            });
+            /* Clipboard access can be denied outright (insecure context, or the
+             * user said no). Surface that instead of a silent no-op. */
+            await navigator.clipboard.writeText(link);
+            setCopied(true);
+        }
+        catch {
+            setError('Could not reach the clipboard. Copy the Room ID and password by hand instead.');
+        }
+    }
+    return (_jsxs("div", { className: "mt-2", children: [_jsx("button", { onClick: copyInvite, className: `group flex h-10 w-full items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${copied
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                    : 'border-content/10 bg-content/[0.06] text-content hover:bg-content/10'}`, title: "Anyone with this link can instantly join your room", children: copied ? (_jsxs(_Fragment, { children: [_jsx(Check, { className: "h-4 w-4" }), "Copied \u2014 treat it like a password"] })) : (_jsxs(_Fragment, { children: [_jsx(LinkIcon, { className: "h-4 w-4" }), "Copy invite link"] })) }), _jsxs("p", { className: "mt-1.5 flex items-start gap-1.5 px-1 text-[11px] leading-relaxed text-content/40", children: [_jsx(ShieldAlert, { className: "mt-px h-3 w-3 shrink-0 text-amber-500" }), _jsxs("span", { children: [_jsx("span", { className: "font-semibold text-content/60", children: "Anyone with this link can instantly join your room." }), ' ', "The password rides in the URL's ", _jsx("code", { className: "font-mono", children: "#fragment" }), ", so it is never sent to a server \u2014 but it is still a password. Share it over a channel you trust."] })] }), error && (_jsxs("p", { className: "mt-1.5 flex items-start gap-1.5 px-1 text-[11px] leading-relaxed text-amber-500", children: [_jsx(AlertTriangle, { className: "mt-px h-3 w-3 shrink-0" }), error] }))] }));
 }
 /* ─────────────────────────────────────────────────────────────
  *  INCOMING FILE CONSENT

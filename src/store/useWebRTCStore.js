@@ -21,6 +21,7 @@ const CLEAN_SLATE = {
     roomId: null,
     password: null,
     localPeerId: null,
+    signalingServer: null,
     peers: [],
     /* Kept out of CLEAN_SLATE's reset targets on purpose — see disconnectAll. */
     transferProgress: {},
@@ -42,13 +43,14 @@ export const useWebRTCStore = create()((set, get) => ({
     killedAt: null,
     setStatus: (status) => set({ status }),
     setSignalingMode: (signalingMode) => set({ signalingMode }),
-    beginSession: ({ role, roomId, password, displayName }) => set({
+    beginSession: ({ role, roomId, password, displayName, signalingServer }) => set({
         ...CLEAN_SLATE,
         status: 'connecting',
         role,
         preferredRole: role,
         roomId,
         password,
+        signalingServer: signalingServer ?? null,
         displayName,
         lastError: null,
         killedAt: null,

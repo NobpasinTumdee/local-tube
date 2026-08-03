@@ -128,6 +128,13 @@ interface WebRTCState {
   /** Kept only to re-derive the room key for late joiners. Never on the wire. */
   password: string | null;
   localPeerId: string | null;
+  /**
+   * The custom signaling server this session was started against, if any.
+   * Kept so an invite link can carry it — a guest who lands on the public
+   * broker while the host is on their own PeerServer is on a different
+   * network entirely and would simply never find the room.
+   */
+  signalingServer: { host: string; port: number; path?: string; secure?: boolean } | null;
   displayName: string;
   /** Survives teardown so a retry after a rejection reopens the right tab. */
   preferredRole: SessionRole;
@@ -172,7 +179,13 @@ interface WebRTCState {
   /* ── actions ── */
   setStatus: (status: ConnectionStatus) => void;
   setSignalingMode: (mode: SignalingMode) => void;
-  beginSession: (args: { role: SessionRole; roomId: string; password: string; displayName: string }) => void;
+  beginSession: (args: {
+    role: SessionRole;
+    roomId: string;
+    password: string;
+    displayName: string;
+    signalingServer?: { host: string; port: number; path?: string; secure?: boolean } | null;
+  }) => void;
   sessionEstablished: (localPeerId: string) => void;
 
   upsertPeer: (peer: PeerInfo) => void;
@@ -229,6 +242,7 @@ const CLEAN_SLATE = {
   roomId: null,
   password: null,
   localPeerId: null,
+  signalingServer: null,
   peers: [] as PeerInfo[],
   /* Kept out of CLEAN_SLATE's reset targets on purpose — see disconnectAll. */
   transferProgress: {} as Record<string, TransferProgress>,
@@ -254,7 +268,7 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
 
   setSignalingMode: (signalingMode) => set({ signalingMode }),
 
-  beginSession: ({ role, roomId, password, displayName }) =>
+  beginSession: ({ role, roomId, password, displayName, signalingServer }) =>
     set({
       ...CLEAN_SLATE,
       status: 'connecting',
@@ -262,6 +276,7 @@ export const useWebRTCStore = create<WebRTCState>()((set, get) => ({
       preferredRole: role,
       roomId,
       password,
+      signalingServer: signalingServer ?? null,
       displayName,
       lastError: null,
       killedAt: null,

@@ -252,6 +252,7 @@ export async function startSession(opts: StartSessionOptions): Promise<void> {
     roomId: opts.roomId,
     password: opts.password,
     displayName: sanitizeDisplayName(opts.displayName),
+    signalingServer: opts.signaling ?? null,
   });
 
   /* PBKDF2 up front so the first joiner isn't kept waiting on it. */

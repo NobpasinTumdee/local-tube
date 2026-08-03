@@ -13,6 +13,7 @@ import FilterBar from './components/FilterBar';
 import GridSettingsBar from './components/GridSettingsBar';
 import BroadcastView from './components/BroadcastView';
 import WatchPartyLobby from './components/WatchPartyLobby';
+import InviteJoinModal from './components/InviteJoinModal';
 
 export default function App() {
   const videos = useStore((s) => s.videos);
@@ -130,6 +131,9 @@ export default function App() {
     return (
       <>
         <Welcome onPick={pickFolder} />
+        {/* An invited guest usually arrives with no folder at all, so the
+            invite prompt has to live on this branch too. */}
+        <InviteJoinModal />
         <WatchPartyLobby />
         <BroadcastView />
       </>
@@ -169,6 +173,7 @@ export default function App() {
 
       {/* Watch-party room + the fullscreen viewer it hands off to.
           Both render null unless a P2P session is live. */}
+      <InviteJoinModal />
       <WatchPartyLobby />
       <BroadcastView />
     </div>

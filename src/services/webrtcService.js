@@ -55,6 +55,7 @@ export async function startSession(opts) {
         roomId: opts.roomId,
         password: opts.password,
         displayName: sanitizeDisplayName(opts.displayName),
+        signalingServer: opts.signaling ?? null,
     });
     /* PBKDF2 up front so the first joiner isn't kept waiting on it. */
     const roomKey = await deriveRoomKey(opts.roomId, opts.password);

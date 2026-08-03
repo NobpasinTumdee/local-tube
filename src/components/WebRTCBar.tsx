@@ -11,6 +11,7 @@ import {
   EyeOff,
   Info,
   KeyRound,
+  Link as LinkIcon,
   Loader2,
   MessageSquare,
   Power,
@@ -40,6 +41,7 @@ import {
   randomRoomId,
 } from '../services/p2pProtocol';
 import { useChatStore, selectTotalUnread } from '../store/useChatStore';
+import { generateInviteLink } from '../utils/p2pInviteUtils';
 import { acceptIncomingFile, declineIncomingFile, shortId } from '../services/webrtcService';
 import ShareModal from './ShareModal';
 import ChatPanel from './ChatPanel';
@@ -688,6 +690,10 @@ function LiveSession({ onOpenShare, onClose }: { onOpenShare: () => void; onClos
         </button>
       </div>
 
+      {/* One-click invite — host only: a guest's copy would just re-invite
+          people to a room they don't own the lifetime of. */}
+      {role === 'host' && <InviteLinkButton />}
+
       <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content/40">
         {signalingMode === 'default-relay' ? (
           <Zap className="h-3 w-3 text-emerald-400" />
@@ -831,6 +837,92 @@ function LiveSession({ onOpenShare, onClose }: { onOpenShare: () => void; onClos
           Disconnect all
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+ *  INVITE LINK
+ * ─────────────────────────────────────────────────────────────
+ *  The link carries the room password in its fragment, which is what
+ *  makes one-click joining possible and what makes it a bearer
+ *  credential. The copy exists to make sure nobody learns that the hard
+ *  way: it says plainly that whoever holds the link holds the room.
+ * ───────────────────────────────────────────────────────────── */
+
+function InviteLinkButton() {
+  const roomId = useWebRTCStore((s) => s.roomId);
+  const password = useWebRTCStore((s) => s.password);
+  const signalingMode = useWebRTCStore((s) => s.signalingMode);
+  const signalingServer = useWebRTCStore((s) => s.signalingServer);
+
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(id);
+  }, [copied]);
+
+  async function copyInvite() {
+    if (!roomId || !password) return;
+    setError(null);
+    try {
+      const link = generateInviteLink(roomId, password, {
+        signalingMode,
+        signaling: signalingServer ?? undefined,
+      });
+      /* Clipboard access can be denied outright (insecure context, or the
+       * user said no). Surface that instead of a silent no-op. */
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+    } catch {
+      setError('Could not reach the clipboard. Copy the Room ID and password by hand instead.');
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={copyInvite}
+        className={`group flex h-10 w-full items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+          copied
+            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+            : 'border-content/10 bg-content/[0.06] text-content hover:bg-content/10'
+        }`}
+        title="Anyone with this link can instantly join your room"
+      >
+        {copied ? (
+          <>
+            <Check className="h-4 w-4" />
+            Copied — treat it like a password
+          </>
+        ) : (
+          <>
+            <LinkIcon className="h-4 w-4" />
+            Copy invite link
+          </>
+        )}
+      </button>
+
+      <p className="mt-1.5 flex items-start gap-1.5 px-1 text-[11px] leading-relaxed text-content/40">
+        <ShieldAlert className="mt-px h-3 w-3 shrink-0 text-amber-500" />
+        <span>
+          <span className="font-semibold text-content/60">
+            Anyone with this link can instantly join your room.
+          </span>{' '}
+          The password rides in the URL's <code className="font-mono">#fragment</code>, so it is never
+          sent to a server — but it is still a password. Share it over a channel you trust.
+        </span>
+      </p>
+
+      {error && (
+        <p className="mt-1.5 flex items-start gap-1.5 px-1 text-[11px] leading-relaxed text-amber-500">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
+          {error}
+        </p>
+      )}
     </div>
   );
 }
