@@ -95,13 +95,26 @@ export default function MediaGrid({ videos }: Props) {
       ? getChildFolders(directoryTree, currentFolderPath)
       : [];
 
-  /* Netflix-style "shelves" home: root + nested + not searching */
+  /*
+   * Netflix-style "shelves" home: root + nested + not searching.
+   *
+   * The workspace root's children are the mounted folders, so with several
+   * folders open each one becomes its own shelf. With a single folder that
+   * would collapse the whole home page into one shelf — so we descend through
+   * the lone mount and shelve ITS subfolders instead, which is what the home
+   * page looked like before folders could be combined.
+   */
+  const shelfParentPath =
+    directoryTree && directoryTree.children.length === 1 ? directoryTree.children[0].path : '';
+  const shelfNodes: FolderNode[] =
+    currentFolderPath === '' && directoryTree ? getChildFolders(directoryTree, shelfParentPath) : [];
+
   const useShelves =
     currentFolderPath === '' &&
     viewMode === 'nested' &&
     !searchQuery.trim() &&
     !!directoryTree &&
-    directoryTree.children.length > 0;
+    shelfNodes.length > 0;
 
   const hasContent = subfolders.length > 0 || videos.length > 0;
 
@@ -123,7 +136,7 @@ export default function MediaGrid({ videos }: Props) {
       {/* ══════════ SHELVES (streaming home) ══════════ */}
       {useShelves ? (
         <div className="flex flex-col gap-9">
-          {directoryTree!.children.map((node, i) => {
+          {shelfNodes.map((node, i) => {
             const ids = new Set(getAllFilesRecursively(allVideos, node.path));
             const items = allVideos.filter((v) => ids.has(v.id) && matchesFilter(v, homeFilter));
             if (items.length === 0) return null;
@@ -139,16 +152,20 @@ export default function MediaGrid({ videos }: Props) {
             );
           })}
 
-          {/* Loose files sitting directly in the root folder */}
+          {/* Loose files sitting directly in the shelf parent (the lone mounted
+              folder). With several folders mounted the parent is the synthetic
+              workspace root, which holds no files, so this renders nothing. */}
           {(() => {
-            const rootFiles = allVideos.filter((v) => v.parentPath === '' && matchesFilter(v, homeFilter));
+            const rootFiles = allVideos.filter(
+              (v) => v.parentPath === shelfParentPath && matchesFilter(v, homeFilter),
+            );
             if (rootFiles.length === 0) return null;
             return (
               <Shelf
                 title="In this folder"
                 count={rootFiles.length}
                 items={rootFiles.slice(0, 18)}
-                index={directoryTree!.children.length}
+                index={shelfNodes.length}
               />
             );
           })()}

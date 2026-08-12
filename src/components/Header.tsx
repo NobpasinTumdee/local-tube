@@ -1,20 +1,24 @@
 import { useState, useRef, useEffect } from 'react';
-import { Settings } from 'lucide-react';
+import { Layers, Loader2, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useLibraryStore } from '../store/useLibraryStore';
 import ThemeSwitcher from './ThemeSwitcher';
 import LayoutSelector from './LayoutSelector';
 import SettingsModal from './SettingsModal';
 import WebRTCBar from './WebRTCBar';
 
 interface Props {
-  onPick: () => void;
+  onOpenWorkspace: () => void;
 }
 
-export default function Header({ onPick }: Props) {
+export default function Header({ onOpenWorkspace }: Props) {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const searchQuery = useStore((s) => s.searchQuery);
   const setSearchQuery = useStore((s) => s.setSearchQuery);
   const rootName = useStore((s) => s.rootName);
+  const scanning = useStore((s) => s.scanning);
+  const mountCount = useLibraryStore((s) => s.activeHandles.length);
+  const pendingCount = useLibraryStore((s) => s.pendingRestore.length);
 
   const [localQ, setLocalQ] = useState(searchQuery);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -98,17 +102,34 @@ export default function Header({ onPick }: Props) {
         </div>
       </form>
 
-      {/* root folder label + re‑pick */}
+      {/*
+        Workspace entry point. Replaces the old "change folder" button: with
+        several folders mountable at once, the meaningful action is managing
+        the set rather than swapping the one root.
+      */}
       <button
-        onClick={onPick}
+        onClick={onOpenWorkspace}
         id="change-folder-btn"
-        className="hidden shrink-0 items-center gap-1.5 rounded-full border border-content/10 bg-content/5 px-4 py-1.5 text-xs text-content/70 transition hover:bg-content/10 sm:flex"
-        title="Change folder"
+        className="relative hidden shrink-0 items-center gap-1.5 rounded-full border border-content/10 bg-content/5 px-4 py-1.5 text-xs text-content/70 transition hover:bg-content/10 sm:flex"
+        title="Manage workspace folders & presets"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-        </svg>
-        <span className="max-w-[120px] truncate">{rootName || 'Folder'}</span>
+        {scanning ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-content/50" />
+        ) : (
+          <Layers className="h-4 w-4 shrink-0" />
+        )}
+        <span className="max-w-[140px] truncate">{rootName || 'Workspace'}</span>
+        {mountCount > 1 && (
+          <span className="shrink-0 rounded-full bg-content/10 px-1.5 text-[10px] font-bold tabular-nums text-content/60">
+            {mountCount}
+          </span>
+        )}
+        {pendingCount > 0 && (
+          <span
+            className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-base"
+            title={`${pendingCount} folder(s) need permission again`}
+          />
+        )}
       </button>
 
       {/* peer-to-peer sharing (opt-in — nothing runs until it's switched on) */}

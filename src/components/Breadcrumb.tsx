@@ -4,6 +4,7 @@ export default function Breadcrumb() {
   const rootName = useStore((s) => s.rootName);
   const currentFolderPath = useStore((s) => s.currentFolderPath);
   const setCurrentFolder = useStore((s) => s.setCurrentFolder);
+  const mountCount = useStore((s) => s.roots.length);
 
   /* Build segments: [{label, path}] */
   const segments: { label: string; path: string }[] = [
@@ -12,7 +13,15 @@ export default function Breadcrumb() {
 
   if (currentFolderPath) {
     const parts = currentFolderPath.split('/');
+    /*
+     * Every path starts with its mounted folder's name. With one folder open
+     * `rootName` IS that name, so rendering both would read "MyVids › MyVids
+     * › Action" — drop the duplicate. With several folders the root crumb is
+     * "N folders" instead, and each mount name is a real, distinct level.
+     */
+    const startAt = mountCount === 1 ? 1 : 0;
     parts.forEach((part, i) => {
+      if (i < startAt) return;
       segments.push({ label: part, path: parts.slice(0, i + 1).join('/') });
     });
   }

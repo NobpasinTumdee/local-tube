@@ -1,7 +1,13 @@
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { useStore } from './store/useStore';
-import { scanDirectory, getAllFilesRecursively } from './utils/directoryScanner';
+import { useLibraryStore } from './store/useLibraryStore';
+import {
+  scanMultipleDirectories,
+  getAllFilesRecursively,
+  emptyScanResult,
+} from './utils/directoryScanner';
 import type { MediaEntry } from './utils/directoryScanner';
+import LibraryManager from './components/LibraryManager';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -29,15 +35,86 @@ export default function App() {
   const currentImageId = useStore((s) => s.currentImageId);
   const layoutMode = useStore((s) => s.layoutMode);
 
+  /* ── workspace ───────────────────────────────────────────── */
+  const activeHandles = useLibraryStore((s) => s.activeHandles);
+  const pendingRestore = useLibraryStore((s) => s.pendingRestore);
+  const workspaceHydrated = useLibraryStore((s) => s.hydrated);
+  const hydrateWorkspace = useLibraryStore((s) => s.hydrate);
+  const addHandleToActive = useLibraryStore((s) => s.addHandleToActive);
+  const setScanning = useStore((s) => s.setScanning);
+
+  const [managerOpen, setManagerOpen] = useState(false);
+
+  useEffect(() => {
+    void hydrateWorkspace();
+  }, [hydrateWorkspace]);
+
+  /*
+   * Folders restored from IndexedDB come back without their permission grant,
+   * and re-granting needs a click. Opening the manager once makes that the
+   * obvious next action instead of leaving the user with an empty library and
+   * no explanation.
+   */
+  const promptedForRestore = useRef(false);
+  useEffect(() => {
+    if (!workspaceHydrated || promptedForRestore.current) return;
+    if (pendingRestore.length > 0) {
+      promptedForRestore.current = true;
+      setManagerOpen(true);
+    }
+  }, [workspaceHydrated, pendingRestore.length]);
+
+  /*
+   * The mounted set is the single source of truth for the library: any change
+   * (add, remove, preset load) re-scans and re-merges. The generation guard
+   * drops results from a scan that a newer one has already superseded, so a
+   * quick add→remove can't land stale files in the grid.
+   */
+  const scanGeneration = useRef(0);
+  useEffect(() => {
+    if (!workspaceHydrated) return;
+    const generation = ++scanGeneration.current;
+
+    if (activeHandles.length === 0) {
+      setLibrary(emptyScanResult());
+      setScanning(false);
+      return;
+    }
+
+    setScanning(true, 0);
+    scanMultipleDirectories(activeHandles, (count) => {
+      if (generation === scanGeneration.current) setScanning(true, count);
+    })
+      .then((result) => {
+        if (generation !== scanGeneration.current) return;
+        setLibrary(result);
+        const failed = result.roots.filter((r) => r.error);
+        if (failed.length) {
+          useLibraryStore
+            .getState()
+            .setError(`Could not read: ${failed.map((r) => r.name).join(', ')}`);
+        }
+      })
+      .catch((err) => {
+        console.error('[workspace] scan failed', err);
+        if (generation === scanGeneration.current) {
+          useLibraryStore.getState().setError('Scanning the workspace failed.');
+        }
+      })
+      .finally(() => {
+        if (generation === scanGeneration.current) setScanning(false);
+      });
+  }, [activeHandles, workspaceHydrated, setLibrary, setScanning]);
+
+  /* Adds one folder to the workspace; the effect above re-scans and merges. */
   async function pickFolder() {
     if (!('showDirectoryPicker' in window)) {
       alert('Your browser does not support the File System Access API. Use Chrome or Edge.');
       return;
     }
     try {
-      const handle = await window.showDirectoryPicker();
-      const result = await scanDirectory(handle);
-      setLibrary(result);
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      await addHandleToActive(handle);
     } catch (err) {
       if ((err as DOMException).name !== 'AbortError') console.error(err);
     }
@@ -125,12 +202,25 @@ export default function App() {
     setPlaybackQueue(visible.filter((v) => v.mediaType === 'video').map((v) => v.id));
   }, [visible, setPlaybackQueue]);
 
-  /* No library yet — but a guest with no folder can still be watching a
-   * peer's broadcast, so the viewer is mounted on this branch too. */
-  if (videos.length === 0) {
+  /* Wait for the saved workspace before deciding what to render — otherwise a
+     returning user sees the landing page flash before their library loads. */
+  if (!workspaceHydrated) return <div className="min-h-screen bg-base" />;
+
+  /*
+   * The workspace, not the file count, decides whether the app is "empty":
+   * a mounted folder that happens to contain no media should still land the
+   * user in the library (with an empty grid), not back on the landing page.
+   * Folders awaiting a permission re-grant count as mounted for the same
+   * reason — the manager opens over the top to explain the one click needed.
+   *
+   * A guest with no folder at all can still be watching a peer's broadcast,
+   * so the P2P viewers are mounted on this branch too.
+   */
+  if (activeHandles.length === 0 && pendingRestore.length === 0) {
     return (
       <>
         <Welcome onSelectFolder={pickFolder} />
+        <LibraryManager open={managerOpen} onClose={() => setManagerOpen(false)} />
         {/* An invited guest usually arrives with no folder at all, so the
             invite prompt has to live on this branch too. */}
         <InviteJoinModal />
@@ -145,7 +235,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-base text-content">
-      <Header onPick={pickFolder} />
+      <Header onOpenWorkspace={() => setManagerOpen(true)} />
+      <LibraryManager open={managerOpen} onClose={() => setManagerOpen(false)} />
 
       {showHome && (
         <div className="flex pt-14">

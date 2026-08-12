@@ -1,5 +1,60 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { getFolderNode } from '../utils/directoryScanner';
+/* ─────────────────────────────────────────────────────────────
+ *  LEGACY MEDIA-ID MIGRATION
+ * ─────────────────────────────────────────────────────────────
+ *  Before the multi-path workspace, a MediaEntry id was the path relative to
+ *  the single picked folder ("Action/hero.mp4"). Ids are now mount-prefixed
+ *  ("MyVideos/Action/hero.mp4") so files from different folders can't collide.
+ *
+ *  That rename would silently orphan every favorite, tag and resume position
+ *  saved by an existing user. This walks the persisted keys once per scan and
+ *  re-points any id that no longer resolves but has exactly one unambiguous
+ *  match under a mount prefix. Ambiguous matches are left alone — losing a
+ *  favorite is recoverable, attaching it to the wrong file is not.
+ * ───────────────────────────────────────────────────────────── */
+export function buildLegacyIdMap(videos, knownIds) {
+    const current = new Set(videos.map((v) => v.id));
+    const remap = new Map();
+    /* suffix ("Action/hero.mp4") → the ids that end with it */
+    const bySuffix = new Map();
+    for (const v of videos) {
+        const suffix = v.id.slice(v.rootFolderName.length + 1);
+        const list = bySuffix.get(suffix);
+        if (list)
+            list.push(v.id);
+        else
+            bySuffix.set(suffix, [v.id]);
+    }
+    for (const oldId of knownIds) {
+        if (current.has(oldId))
+            continue; // still valid — nothing to do
+        const matches = bySuffix.get(oldId);
+        if (matches?.length === 1)
+            remap.set(oldId, matches[0]);
+    }
+    return remap;
+}
+/** Applies a legacy→current id map across every persisted user-data shape. */
+function applyIdRemap(s, remap) {
+    const to = (id) => remap.get(id) ?? id;
+    const remapRecord = (rec) => {
+        const out = {};
+        for (const [k, v] of Object.entries(rec))
+            out[to(k)] = v;
+        return out;
+    };
+    return {
+        favorites: [...new Set(s.favorites.map(to))],
+        virtualPlaylists: s.virtualPlaylists.map((p) => ({
+            ...p,
+            mediaIds: [...new Set(p.mediaIds.map(to))],
+        })),
+        mediaTags: remapRecord(s.mediaTags),
+        playbackProgress: remapRecord(s.playbackProgress),
+    };
+}
 const newId = () => (globalThis.crypto?.randomUUID?.() ?? `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
 /** Normalize a raw tag input: trim, strip leading '#', collapse whitespace. */
 export const normalizeTag = (raw) => raw.trim().replace(/^#+/, '').replace(/\s+/g, ' ').trim();
@@ -105,6 +160,9 @@ export const useStore = create()(persist((set, get) => ({
     videos: [],
     playlists: [],
     directoryTree: null,
+    roots: [],
+    scanning: false,
+    scanProgress: 0,
     currentFolderPath: '',
     searchQuery: '',
     sidebarOpen: true,
@@ -140,36 +198,66 @@ export const useStore = create()(persist((set, get) => ({
     /* legacy */
     activePlaylist: null,
     setActivePlaylist: (p) => set({ activePlaylist: p, currentFolderPath: p ?? '', searchQuery: '', collection: { type: 'all' } }),
+    /*
+     * Called on every workspace change, not just once at startup — mounting or
+     * unmounting a folder re-scans. So this preserves as much context as the new
+     * library still supports instead of resetting the app: a video keeps playing
+     * while you add a folder, and thumbnails already generated are not thrown
+     * away and recomputed.
+     */
     setLibrary: (scan) => set((s) => {
-        /* Revoke orphaned image-thumbnail blob: URLs from the previous scan so they
-           don't accumulate in memory. Video thumbnails are inline data: URLs (nothing
-           to revoke). Nothing here leaves the browser — purely local cleanup. */
-        for (const m of Object.values(s.videoMeta)) {
-            if (m.thumbnailUrl?.startsWith('blob:'))
+        const ids = new Set(scan.videos.map((v) => v.id));
+        /* One-time id migration for libraries saved before mount prefixes. */
+        const remap = buildLegacyIdMap(scan.videos, [
+            ...s.favorites,
+            ...Object.keys(s.mediaTags),
+            ...Object.keys(s.playbackProgress),
+            ...s.virtualPlaylists.flatMap((p) => p.mediaIds),
+        ]);
+        const migrated = remap.size ? applyIdRemap(s, remap) : null;
+        /* Keep meta for files that survived; revoke blob: URLs for the rest so
+           they don't leak. Video thumbnails are inline data: URLs — nothing to
+           revoke. Purely local cleanup; nothing leaves the browser. */
+        const videoMeta = {};
+        for (const [id, m] of Object.entries(s.videoMeta)) {
+            const liveId = remap.get(id) ?? id;
+            if (ids.has(liveId))
+                videoMeta[liveId] = m;
+            else if (m.thumbnailUrl?.startsWith('blob:'))
                 URL.revokeObjectURL(m.thumbnailUrl);
         }
+        /* A folder path survives if the tree still contains it. */
+        const folderStillExists = s.currentFolderPath === '' || !!getFolderNode(scan.directoryTree, s.currentFolderPath);
+        const currentVideoId = s.currentVideoId && ids.has(s.currentVideoId) ? s.currentVideoId : null;
+        const currentImageId = s.currentImageId && ids.has(s.currentImageId) ? s.currentImageId : null;
         return {
             rootName: scan.rootName,
             videos: scan.videos,
             playlists: scan.playlists,
             directoryTree: scan.directoryTree,
-            currentFolderPath: '',
+            roots: scan.roots,
+            currentFolderPath: folderStillExists ? s.currentFolderPath : '',
             activePlaylist: null,
             searchQuery: '',
-            currentVideoId: null,
-            currentImageId: null,
-            playerMode: 'none',
-            view: 'home',
-            homeFilter: 'all',
-            viewMode: 'nested',
-            videoMeta: {},
+            currentVideoId,
+            currentImageId,
+            playerMode: currentVideoId ? s.playerMode : 'none',
+            view: currentVideoId && s.view === 'playing' ? 'playing' : 'home',
+            videoMeta,
             playbackQueue: [],
-            recentVideoIds: [],
-            collection: { type: 'all' },
+            recentVideoIds: s.recentVideoIds.map((id) => remap.get(id) ?? id).filter((id) => ids.has(id)),
+            activeMedia: s.activeMedia.map((id) => {
+                if (id == null)
+                    return null;
+                const liveId = remap.get(id) ?? id;
+                return ids.has(liveId) ? liveId : null;
+            }),
             activeFilterTags: [],
-            /* NOTE: favorites, virtualPlaylists & mediaTags intentionally preserved across re-scans */
+            /* favorites, virtualPlaylists & mediaTags survive re-scans by design */
+            ...(migrated ?? {}),
         };
     }),
+    setScanning: (on, progress) => set((s) => ({ scanning: on, scanProgress: on ? progress ?? s.scanProgress : 0 })),
     /*
      * Navigating to a folder should NOT reset currentVideoId / playerMode —
      * that lets the mini-player keep playing while the user browses.

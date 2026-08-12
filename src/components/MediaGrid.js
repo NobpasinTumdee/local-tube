@@ -40,24 +40,34 @@ export default function MediaGrid({ videos }) {
     const subfolders = viewMode === 'nested' && directoryTree
         ? getChildFolders(directoryTree, currentFolderPath)
         : [];
-    /* Netflix-style "shelves" home: root + nested + not searching */
+    /*
+     * Netflix-style "shelves" home: root + nested + not searching.
+     *
+     * The workspace root's children are the mounted folders, so with several
+     * folders open each one becomes its own shelf. With a single folder that
+     * would collapse the whole home page into one shelf — so we descend through
+     * the lone mount and shelve ITS subfolders instead, which is what the home
+     * page looked like before folders could be combined.
+     */
+    const shelfParentPath = directoryTree && directoryTree.children.length === 1 ? directoryTree.children[0].path : '';
+    const shelfNodes = currentFolderPath === '' && directoryTree ? getChildFolders(directoryTree, shelfParentPath) : [];
     const useShelves = currentFolderPath === '' &&
         viewMode === 'nested' &&
         !searchQuery.trim() &&
         !!directoryTree &&
-        directoryTree.children.length > 0;
+        shelfNodes.length > 0;
     const hasContent = subfolders.length > 0 || videos.length > 0;
-    return (_jsxs("div", { children: [_jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "flex-1", children: _jsx(Breadcrumb, {}) }), _jsxs("div", { className: "flex shrink-0 items-center gap-1 rounded-xl border border-content/[0.06] bg-content/[0.03] p-1", children: [_jsx(ViewToggleBtn, { label: "Folders", icon: _jsx(Folder, { className: "h-3.5 w-3.5" }), value: "nested", current: viewMode, onClick: setViewMode }), _jsx(ViewToggleBtn, { label: "All Files", icon: _jsx(List, { className: "h-3.5 w-3.5" }), value: "flat", current: viewMode, onClick: setViewMode })] })] }), !hasContent && _jsx(EmptyState, {}), useShelves ? (_jsxs("div", { className: "flex flex-col gap-9", children: [directoryTree.children.map((node, i) => {
+    return (_jsxs("div", { children: [_jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "flex-1", children: _jsx(Breadcrumb, {}) }), _jsxs("div", { className: "flex shrink-0 items-center gap-1 rounded-xl border border-content/[0.06] bg-content/[0.03] p-1", children: [_jsx(ViewToggleBtn, { label: "Folders", icon: _jsx(Folder, { className: "h-3.5 w-3.5" }), value: "nested", current: viewMode, onClick: setViewMode }), _jsx(ViewToggleBtn, { label: "All Files", icon: _jsx(List, { className: "h-3.5 w-3.5" }), value: "flat", current: viewMode, onClick: setViewMode })] })] }), !hasContent && _jsx(EmptyState, {}), useShelves ? (_jsxs("div", { className: "flex flex-col gap-9", children: [shelfNodes.map((node, i) => {
                         const ids = new Set(getAllFilesRecursively(allVideos, node.path));
                         const items = allVideos.filter((v) => ids.has(v.id) && matchesFilter(v, homeFilter));
                         if (items.length === 0)
                             return null;
                         return (_jsx(Shelf, { title: node.name, count: items.length, items: items.slice(0, 18), index: i, onSeeAll: () => setCurrentFolder(node.path) }, node.path));
                     }), (() => {
-                        const rootFiles = allVideos.filter((v) => v.parentPath === '' && matchesFilter(v, homeFilter));
+                        const rootFiles = allVideos.filter((v) => v.parentPath === shelfParentPath && matchesFilter(v, homeFilter));
                         if (rootFiles.length === 0)
                             return null;
-                        return (_jsx(Shelf, { title: "In this folder", count: rootFiles.length, items: rootFiles.slice(0, 18), index: directoryTree.children.length }));
+                        return (_jsx(Shelf, { title: "In this folder", count: rootFiles.length, items: rootFiles.slice(0, 18), index: shelfNodes.length }));
                     })()] })) : (_jsxs(_Fragment, { children: [viewMode === 'nested' && subfolders.length > 0 && (_jsxs("div", { className: "mb-9", children: [currentFolderPath === '' && _jsx(SectionTitle, { children: "Folders" }), _jsx("div", { className: "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", children: subfolders.map((folder, i) => (_jsx(motion.div, { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(FolderCard, { folder: folder, onClick: () => setCurrentFolder(folder.path) }) }, folder.path))) })] })), videos.length > 0 && (_jsxs(_Fragment, { children: [viewMode === 'nested' && subfolders.length > 0 && _jsx(SectionTitle, { children: "Files" }), viewMode === 'flat' && (_jsxs("p", { className: "mb-5 text-xs font-medium text-content/35", children: [videos.length, " file", videos.length !== 1 ? 's' : '', " \u00B7 including subfolders"] })), _jsx("div", { className: `grid items-start gap-x-5 gap-y-9 ${gridColsClass}`, style: gridStyle, children: videos.map((v, i) => (_jsx(motion.div, { layout: true, initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(MediaCard, { video: v }) }, v.id))) })] }))] }))] }));
 }
 /* ─── Horizontal shelf (carousel) ─── */
