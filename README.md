@@ -44,6 +44,8 @@ LocalTube is built around three hard guarantees, each **verified by a source-cod
 ### 1. 🟢 Local by Default — No Network Exfiltration
 There are **zero** `fetch`, `XMLHttpRequest`, `sendBeacon`, or `EventSource` calls anywhere in the codebase, and **no analytics, telemetry, or third-party trackers**. Your folder paths, files, thumbnails, Blob URLs, and metadata **never leave the browser** on their own. The app loads only its own bundled assets — no CDNs, no remote fonts.
 
+> The landing page's background video is part of that guarantee: it is `import`ed so the bundler fingerprints it into `dist/`, rather than pulled from a CDN at runtime. A cold load fetches nothing but same-origin files the build produced.
+
 > **The one qualifier:** the [P2P Watch Party](#-p2p-watch-party-opt-in) uses WebRTC, and therefore a `WebSocket` to a signaling broker — but **only after you explicitly open or join a room**. Until then the PeerJS library is not even downloaded (it lives behind a dynamic `import()`), so a cold session makes exactly zero network requests. You can verify this in DevTools → Network: nothing peer-related appears until you press **Open room**.
 
 ### 2. 🔵 Read-Only — No File Modification
@@ -52,7 +54,7 @@ LocalTube opens your folder with the **default `'read'` permission only**. It ne
 ### 3. 🟣 Sandbox Security — No Escape, No XSS
 All file access is confined to the single directory handle *you* explicitly authorize — the browser sandbox enforces this, and the code performs no path-string manipulation to reach outside it. There is **no `dangerouslySetInnerHTML`, `innerHTML`, `eval`, or `new Function`** in the project, eliminating common XSS sinks. Blob URLs are created lazily and revoked deterministically.
 
-> **Virtual, not physical:** Favorites, Virtual Playlists, and Custom Tags are stored *only* as strings (media IDs = relative paths) in `localStorage`. They reorganize your **view**, never your **disk**.
+> **Virtual, not physical:** Favorites, Virtual Playlists, Custom Tags, **Workspace presets** and the **Private Vault** are stored *only* as strings (media IDs = mount-prefixed relative paths). They reorganize your **view**, never your **disk**. "Moving" a file into the Vault adds its id to an encrypted list — the file itself never moves, and deleting the Vault deletes only that list.
 
 ---
 
@@ -531,21 +533,6 @@ npm run dev
 ```
 Then open the printed URL (default **http://localhost:5173**), click **Select Media Folder**, and choose any folder of videos/images.
 
-### Building a multi-folder workspace
-
-1. Open **Workspace** in the header (or **My Presets** on the welcome screen).
-2. **Add folder to workspace** — repeat for as many folders as you want. They merge into one library immediately.
-3. Type a name and press **Save** to store the combination as a preset.
-4. Next session, click the preset to reopen all of its folders at once. Browsers drop folder access on restart, so you'll get one permission prompt per folder — that click is required by the browser and can't be skipped.
-
-### Using the Vault
-
-1. **Set up Vault** in the sidebar → choose a PIN of 6+ digits (or a longer passphrase) and confirm it. Deriving the key takes a few hundred milliseconds by design.
-2. Add items from any card's **⋯ → Move to Private Vault**.
-3. While locked, those items are gone from the grid, from search, and from autoplay. Unlock from the sidebar to see them again; it re-locks after 5 minutes idle.
-
-> Read [what the Vault does and does not protect against](#-private-vault--the-pin-lock) before trusting it with anything that genuinely matters.
-
 ### Build for production
 ```bash
 npm run build      # type-checks (tsc -b) then bundles with Vite → dist/
@@ -555,6 +542,27 @@ npm run preview    # serve the production build locally
 ### Supported formats
 - **Video:** `.mp4`, `.webm`, `.ogg`, `.ogv`, `.mov`, `.mkv`, `.m4v`
 - **Image:** `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.avif`, `.bmp`
+
+### Building a multi-folder workspace
+
+1. Open **Workspace** in the header (or **My Presets** on the welcome screen).
+2. **Add folder to workspace** — repeat for as many folders as you want. They merge into one library immediately.
+3. Type a name and press **Save** to store the combination as a preset.
+4. Next session, click the preset to reopen all of its folders at once. Browsers drop folder access on restart, so you'll get one permission prompt per folder — that click is required by the browser and can't be skipped.
+
+### Setting up Stealth Mode
+
+1. **Settings** (gear icon) → **Stealth Mode**.
+2. Click the shortcut button and press your combination — at least one modifier plus a key. <kbd>Esc</kbd> alone cancels recording.
+3. Pick a cover: **Blackout** or **Fake terminal**. **Try it now** demonstrates it safely.
+
+### Using the Vault
+
+1. **Set up Vault** in the sidebar → choose a PIN of 6+ digits (or a longer passphrase) and confirm it. Deriving the key takes a few hundred milliseconds by design.
+2. Add items from any card's playlist menu → **Move to Private Vault**.
+3. While locked, those items are gone from the grid, from search, and from the playback queue. Unlock from the sidebar to see them again; it re-locks after 5 minutes idle.
+
+> Read [what the Vault does and does not protect against](#private-vault--the-pin-lock) before trusting it with anything that genuinely matters.
 
 ### Using the P2P Watch Party
 
@@ -600,7 +608,7 @@ These are planned and **not currently in the codebase**:
 | Vault: wrong PIN rejected | ✅ Verified | GCM tag failure. Tampered ciphertext and substituted salt are rejected identically — the error deliberately can't distinguish wrong-PIN from corruption |
 | Vault: IV never reused | ✅ Verified | 8 encryptions of identical plaintext → 8 distinct IVs **and** 8 distinct ciphertexts |
 | Vault: hidden while locked | ✅ Verified | Vaulted items absent from the grid, from global search, and from the playback queue while locked; restored on unlock |
-| Vault: offline brute force | ⚠️ **Limited by design** | A 6-digit PIN is 10⁶ candidates against a GPU-friendly KDF. Protects against casual access to an unlocked machine, **not** against disk imaging — see [the threat model](#-private-vault--the-pin-lock) |
+| Vault: offline brute force | ⚠️ **Limited by design** | A 6-digit PIN is 10⁶ candidates against a GPU-friendly KDF. Protects against casual access to an unlocked machine, **not** against disk imaging — see [the threat model](#private-vault--the-pin-lock) |
 | Doc PiP: no network | ✅ By construction | The popout shares this page's realm; stylesheets are cloned from already-loaded local sheets, never re-fetched |
 | Scrub previews: local only | ✅ Verified | Blob URL → offscreen `<video>` → `<canvas>`; frames cached in IndexedDB. No `fetch`, no upload |
 | P2P: no remote read | ✅ Verified | Protocol has no read/list/get message; service holds no library reference or file handle |
