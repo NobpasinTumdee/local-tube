@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { Layers, Loader2, Settings } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import ThemeSwitcher from './ThemeSwitcher';
 import LayoutSelector from './LayoutSelector';
 import SettingsModal from './SettingsModal';
 import WebRTCBar from './WebRTCBar';
@@ -138,10 +137,9 @@ export default function Header({ onOpenWorkspace }: Props) {
       {/* multi-video layout */}
       <LayoutSelector />
 
-      {/* theme picker */}
-      <ThemeSwitcher />
+      {/* Theme now lives inside Settings — see ThemeSwitcher.tsx */}
 
-      {/* settings / backup */}
+      {/* settings / backup / theme / stealth */}
       <button
         onClick={() => setSettingsOpen(true)}
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content/80 transition hover:bg-content/10"

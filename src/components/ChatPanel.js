@@ -6,6 +6,8 @@ import { useChatStore, } from '../store/useChatStore';
 import { useWebRTCStore, selectAuthenticatedPeers } from '../store/useWebRTCStore';
 import { CHAT_MAX_FILE_BYTES, CHAT_MAX_TEXT_CHARS, CHAT_ROOM_TARGET } from '../services/p2pProtocol';
 import { sendChatAttachment, sendChatMessage } from '../services/webrtcService';
+import { useIsPoppedOut } from '../hooks/useDocumentPiP';
+import PopOutButton from './PopOutButton';
 import { formatBytes } from './WebRTCBar';
 /* ─────────────────────────────────────────────────────────────
  *  CHAT PANEL
@@ -25,17 +27,28 @@ const EMOJI = [
     '❤️', '🔥', '✨', '🎉', '🍿', '🎬', '📺', '🎵',
     '😱', '😭', '🤯', '💀', '🤡', '🥳', '😅', '🫠',
 ];
+/**
+ * The drawer as it appears in the main window.
+ *
+ * Renders nothing while the chat is popped out — ChatPanelBody is mounted
+ * inside the PiP window instead. Two copies would each subscribe to the same
+ * store and fight over scroll position and the composer's focus.
+ */
 export default function ChatPanel() {
     const open = useChatStore((s) => s.open);
     const setOpen = useChatStore((s) => s.setOpen);
+    const poppedOut = useIsPoppedOut('chat');
     const activeTab = useChatStore((s) => s.activeTab);
     const setActiveTab = useChatStore((s) => s.setActiveTab);
-    const unread = useChatStore((s) => s.unread);
-    const messages = useChatStore((s) => s.messages);
     const peers = useWebRTCStore(selectAuthenticatedPeers);
     const status = useWebRTCStore((s) => s.status);
     const live = status !== 'disconnected';
-    /* A whisper tab whose peer left falls back to the room. */
+    /*
+     * A whisper tab whose peer left falls back to the room. This stays on the
+     * outer component rather than the body, because it must keep running while
+     * the chat is popped out — the drawer is unmounted then, but the tab it
+     * points at can still go stale.
+     */
     useEffect(() => {
         if (activeTab === CHAT_ROOM_TARGET)
             return;
@@ -44,7 +57,7 @@ export default function ChatPanel() {
     }, [peers, activeTab, setActiveTab]);
     /* Escape closes the drawer, matching every other overlay in the app. */
     useEffect(() => {
-        if (!open)
+        if (!open || poppedOut)
             return;
         const onKey = (e) => {
             if (e.key === 'Escape')
@@ -52,12 +65,26 @@ export default function ChatPanel() {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [open, setOpen]);
+    }, [open, poppedOut, setOpen]);
+    if (!open || !live || poppedOut)
+        return null;
+    return createPortal(_jsx("div", { className: "fixed inset-y-0 right-0 z-[320] flex w-full max-w-md flex-col border-l border-content/10 bg-surface shadow-2xl shadow-black/60", children: _jsx(ChatPanelBody, {}) }), document.body);
+}
+/**
+ * The chat itself, with no positioning of its own, so the same tree works
+ * as a right-hand drawer in the main window and as the whole viewport of a
+ * picture-in-picture window.
+ */
+export function ChatPanelBody({ embedded = false }) {
+    const setOpen = useChatStore((s) => s.setOpen);
+    const activeTab = useChatStore((s) => s.activeTab);
+    const setActiveTab = useChatStore((s) => s.setActiveTab);
+    const unread = useChatStore((s) => s.unread);
+    const messages = useChatStore((s) => s.messages);
+    const peers = useWebRTCStore(selectAuthenticatedPeers);
     const thread = useMemo(() => messages.filter((m) => m.threadId === activeTab), [messages, activeTab]);
     const activePeer = peers.find((p) => p.id === activeTab);
-    if (!open || !live)
-        return null;
-    return createPortal(_jsxs("div", { className: "fixed inset-y-0 right-0 z-[320] flex w-full max-w-md flex-col border-l border-content/10 bg-surface shadow-2xl shadow-black/60", children: [_jsxs("div", { className: "flex items-center gap-2 border-b border-content/10 px-4 py-3", children: [_jsx(MessageSquare, { className: "h-4 w-4 text-primary" }), _jsx("h2", { className: "text-sm font-bold text-content", children: "Room chat" }), _jsx("span", { className: "rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400", children: "Not saved" }), _jsx("button", { onClick: () => setOpen(false), className: "ml-auto flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Close chat", children: _jsx(X, { className: "h-4 w-4" }) })] }), _jsxs("div", { className: "flex gap-1 overflow-x-auto border-b border-content/10 px-2 py-2", children: [_jsx(TabButton, { active: activeTab === CHAT_ROOM_TARGET, unread: unread[CHAT_ROOM_TARGET] ?? 0, onClick: () => setActiveTab(CHAT_ROOM_TARGET), icon: _jsx(Users, { className: "h-3.5 w-3.5" }), label: "Room (All)" }), peers.map((p) => (_jsx(TabButton, { active: activeTab === p.id, unread: unread[p.id] ?? 0, onClick: () => setActiveTab(p.id), icon: _jsx(Lock, { className: "h-3 w-3" }), label: p.name }, p.id)))] }), _jsx(MessageList, { thread: thread, activeTab: activeTab }), _jsx(Composer, { target: activeTab, targetName: activePeer?.name, disabled: peers.length === 0 })] }), document.body);
+    return (_jsxs("div", { className: "flex h-full min-h-0 w-full flex-col bg-surface", children: [_jsxs("div", { className: "flex items-center gap-2 border-b border-content/10 px-4 py-3", children: [_jsx(MessageSquare, { className: "h-4 w-4 text-primary" }), _jsx("h2", { className: "text-sm font-bold text-content", children: "Room chat" }), _jsx("span", { className: "rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400", children: "Not saved" }), _jsxs("div", { className: "ml-auto flex items-center gap-1", children: [_jsx(PopOutButton, { content: "chat", title: "Pop chat out into a floating window" }), !embedded && (_jsx("button", { onClick: () => setOpen(false), className: "flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Close chat", children: _jsx(X, { className: "h-4 w-4" }) }))] })] }), _jsxs("div", { className: "flex gap-1 overflow-x-auto border-b border-content/10 px-2 py-2", children: [_jsx(TabButton, { active: activeTab === CHAT_ROOM_TARGET, unread: unread[CHAT_ROOM_TARGET] ?? 0, onClick: () => setActiveTab(CHAT_ROOM_TARGET), icon: _jsx(Users, { className: "h-3.5 w-3.5" }), label: "Room (All)" }), peers.map((p) => (_jsx(TabButton, { active: activeTab === p.id, unread: unread[p.id] ?? 0, onClick: () => setActiveTab(p.id), icon: _jsx(Lock, { className: "h-3 w-3" }), label: p.name }, p.id)))] }), _jsx(MessageList, { thread: thread, activeTab: activeTab }), _jsx(Composer, { target: activeTab, targetName: activePeer?.name, disabled: peers.length === 0 })] }));
 }
 function TabButton({ active, unread, onClick, icon, label, }) {
     return (_jsxs("button", { onClick: onClick, className: `relative flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${active ? 'bg-content/10 text-content' : 'text-content/50 hover:bg-content/5 hover:text-content/80'}`, children: [icon, _jsx("span", { className: "max-w-[8rem] truncate", children: label }), unread > 0 && !active && (_jsx("span", { className: "flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white", children: unread > 9 ? '9+' : unread }))] }));

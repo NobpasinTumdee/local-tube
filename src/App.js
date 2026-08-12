@@ -10,7 +10,7 @@ import VaultModal from './components/VaultModal';
 import { useStealthMode } from './hooks/useStealthMode';
 import { useVaultHiddenIds, useVaultSession } from './hooks/useVaultGuard';
 import { useVaultStore } from './store/useVaultStore';
-import { usePiPStore } from './hooks/useDocumentPiP';
+import { useIsPoppedOut } from './hooks/useDocumentPiP';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -51,7 +51,9 @@ export default function App() {
     const vaultHiddenIds = useVaultHiddenIds();
     const vaultMediaIds = useVaultStore((s) => s.mediaIds);
     const isVaultUnlocked = useVaultStore((s) => s.isVaultUnlocked);
-    const pipWindow = usePiPStore((s) => s.pipWindow);
+    /* Only the GRID moving out should blank the inline grid — the chat or the
+       watch-party room being popped out must leave the library alone. */
+    const gridPoppedOut = useIsPoppedOut('grid');
     useEffect(() => {
         void hydrateWorkspace();
     }, [hydrateWorkspace]);
@@ -255,5 +257,5 @@ export default function App() {
     }
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onOpenWorkspace: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, { onOpenVault: () => setVaultOpen(true) }), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && !pipWindow && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), layoutMode && pipWindow && (_jsx("div", { className: "mb-6 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-content/10 bg-content/[0.02] py-10 text-sm text-content/40", children: "Playing in the pop-out window." })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {}), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {}), _jsx(PiPStage, {}), _jsx(VaultModal, { open: vaultOpen, onClose: () => setVaultOpen(false) }), _jsx(StealthOverlay, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onOpenWorkspace: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, { onOpenVault: () => setVaultOpen(true) }), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && !gridPoppedOut && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), layoutMode && gridPoppedOut && (_jsx("div", { className: "mb-6 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-content/10 bg-content/[0.02] py-10 text-sm text-content/40", children: "Playing in the pop-out window." })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {}), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {}), _jsx(PiPStage, {}), _jsx(VaultModal, { open: vaultOpen, onClose: () => setVaultOpen(false) }), _jsx(StealthOverlay, {})] }));
 }

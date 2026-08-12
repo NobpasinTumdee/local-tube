@@ -9,10 +9,15 @@ export function isDocumentPiPSupported() {
 }
 export const usePiPStore = create()((set) => ({
     pipWindow: null,
+    content: null,
     error: null,
-    set: (w) => set({ pipWindow: w }),
+    set: (w, content = null) => set({ pipWindow: w, content: w ? content : null }),
     setError: (e) => set({ error: e }),
 }));
+/** True when `what` is the surface currently living in the popout. */
+export function useIsPoppedOut(what) {
+    return usePiPStore((s) => !!s.pipWindow && s.content === what);
+}
 /**
  * Non-React accessor. Stealth mode has to reach into the PiP document to
  * mute what is playing there, and it cannot call a hook to find out.
@@ -56,6 +61,7 @@ export function copyStyles(target) {
 }
 export function useDocumentPiP() {
     const pipWindow = usePiPStore((s) => s.pipWindow);
+    const content = usePiPStore((s) => s.content);
     const error = usePiPStore((s) => s.error);
     const setPipWindow = usePiPStore((s) => s.set);
     const setError = usePiPStore((s) => s.setError);
@@ -66,13 +72,21 @@ export function useDocumentPiP() {
         if (w && !w.closed)
             w.close();
     }, [setPipWindow]);
-    const open = useCallback(async (opts) => {
+    const open = useCallback(async (what, opts) => {
         const dpip = api();
         if (!dpip) {
             setError('This browser has no Document Picture-in-Picture. Use Chrome or Edge 116+.');
             return null;
         }
         try {
+            /*
+             * One popout per document. Closing the previous one first is
+             * synchronous, so it does not consume the user gesture that the
+             * requestWindow() below still needs.
+             */
+            const existing = usePiPStore.getState().pipWindow;
+            if (existing && !existing.closed)
+                existing.close();
             /*
              * requestWindow() consumes a user gesture, so it must be the first
              * await in the click handler that calls this.
@@ -102,7 +116,7 @@ export function useDocumentPiP() {
             /* 'pagehide' fires for the user closing it from the OS chrome, which
                'unload' can miss. */
             w.addEventListener('pagehide', onUnload, { once: true });
-            setPipWindow(w);
+            setPipWindow(w, what);
             setError(null);
             return w;
         }
@@ -126,5 +140,5 @@ export function useDocumentPiP() {
         window.addEventListener('pagehide', onPageHide);
         return () => window.removeEventListener('pagehide', onPageHide);
     }, []);
-    return { supported, pipWindow, open, close, error };
+    return { supported, pipWindow, content, open, close, error };
 }

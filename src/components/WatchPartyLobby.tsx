@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { useWebRTCStore } from '../store/useWebRTCStore';
 import { shortId } from '../services/webrtcService';
+import { useIsPoppedOut } from '../hooks/useDocumentPiP';
+import PopOutButton from './PopOutButton';
 
 /* ─────────────────────────────────────────────────────────────
  *  WATCH PARTY LOBBY
@@ -34,10 +36,16 @@ import { shortId } from '../services/webrtcService';
  *  which is its own source of "the stream never appears".
  * ───────────────────────────────────────────────────────────── */
 
-export default function WatchPartyLobby() {
+/**
+ * @param embedded  True when rendered as the whole viewport of a
+ *   picture-in-picture window: the fixed backdrop, the minimise control and
+ *   the portal are all dropped, since the OS window provides them.
+ */
+export default function WatchPartyLobby({ embedded = false }: { embedded?: boolean }) {
   const status = useWebRTCStore((s) => s.status);
   const lobbyOpen = useWebRTCStore((s) => s.lobbyOpen);
   const setLobbyOpen = useWebRTCStore((s) => s.setLobbyOpen);
+  const poppedOut = useIsPoppedOut('party');
 
   const roomId = useWebRTCStore((s) => s.roomId);
   const role = useWebRTCStore((s) => s.role);
@@ -120,23 +128,23 @@ export default function WatchPartyLobby() {
   }, [lobbyOpen, setLobbyOpen]);
 
   if (status === 'disconnected' || !lobbyOpen) return null;
+  /* The popped-out copy owns the stream; a second <video> in this window
+     would negotiate nothing and just sit black behind it. */
+  if (!embedded && poppedOut) return null;
 
   const authed = peers.filter((p) => p.authenticated);
   const connecting = !!meta && !isReceiving;
+  /* In the popout the OS window is the frame, so the card fills it. */
+  const compact = minimized && !embedded;
 
-  return createPortal(
-    <div
-      className={
-        minimized
-          ? 'fixed bottom-5 right-5 z-[320] flex w-[400px] flex-col overflow-hidden rounded-2xl border border-content/10 bg-surface shadow-2xl shadow-black/60'
-          : 'fixed inset-0 z-[320] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm'
-      }
-    >
+  const card = (
       <div
         className={
-          minimized
-            ? 'flex flex-col'
-            : 'flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-content/10 bg-surface shadow-2xl shadow-black/50'
+          embedded
+            ? 'flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface'
+            : compact
+              ? 'flex flex-col'
+              : 'flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-content/10 bg-surface shadow-2xl shadow-black/50'
         }
       >
         {/* ── header ── */}
@@ -164,20 +172,28 @@ export default function WatchPartyLobby() {
             </span>
           )}
 
-          <button
-            onClick={() => setMinimized((v) => !v)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
-            aria-label={minimized ? 'Expand' : 'Minimize'}
-          >
-            {minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-          </button>
-          <button
-            onClick={() => setLobbyOpen(false)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <PopOutButton content="party" title="Pop the room out into a floating window" />
+
+          {/* Minimising and closing belong to the in-app overlay; in the
+              popout the OS window already provides both. */}
+          {!embedded && (
+            <>
+              <button
+                onClick={() => setMinimized((v) => !v)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
+                aria-label={minimized ? 'Expand' : 'Minimize'}
+              >
+                {minimized ? <Maximize2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={() => setLobbyOpen(false)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
 
         {/* ── stage ──
@@ -231,7 +247,7 @@ export default function WatchPartyLobby() {
         </div>
 
         {/* ── footer ── */}
-        {!minimized && (
+        {!compact && (
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
             {/* room strip */}
             <div className="flex flex-wrap items-center gap-2">
@@ -308,6 +324,19 @@ export default function WatchPartyLobby() {
           </div>
         )}
       </div>
+  );
+
+  if (embedded) return card;
+
+  return createPortal(
+    <div
+      className={
+        compact
+          ? 'fixed bottom-5 right-5 z-[320] flex w-[400px] flex-col overflow-hidden rounded-2xl border border-content/10 bg-surface shadow-2xl shadow-black/60'
+          : 'fixed inset-0 z-[320] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm'
+      }
+    >
+      {card}
     </div>,
     document.body,
   );

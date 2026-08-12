@@ -7,7 +7,7 @@ import Scrubber from './Scrubber';
 import { PlayerGoLiveButton } from './BroadcastView';
 import { setActiveVideoElement } from '../services/mediaElementRegistry';
 import { useScrubFrames } from '../hooks/useScrubFrames';
-import { useDocumentPiP } from '../hooks/useDocumentPiP';
+import { useDocumentPiP, useIsPoppedOut } from '../hooks/useDocumentPiP';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
 
@@ -79,10 +79,12 @@ export default function Player() {
 
   const {
     supported: pipSupported,
-    pipWindow,
     open: openPiP,
     close: closePiP,
   } = useDocumentPiP();
+  /* Only the grid counts here — the chat or the room being popped out must
+     not make this button read as "already out". */
+  const pipWindow = useIsPoppedOut('grid');
 
   const video = useMemo(
     () => videos.find((v) => v.id === currentVideoId),
@@ -336,7 +338,7 @@ export default function Player() {
     const slots = useStore.getState().activeMedia;
     if (video && !slots.some((id) => id === video.id)) addToLayout(video.id, 0);
     setLayoutMode(true);
-    await openPiP({ width: 720, height: 460 });
+    await openPiP('grid', { width: 720, height: 460 });
   };
 
   const toggleFullscreen = () => {

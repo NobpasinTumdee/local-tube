@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, Upload, Database, AlertTriangle, Check, Heart, ListMusic, Tag, EyeOff, Keyboard } from 'lucide-react';
+import { X, Download, Upload, Database, AlertTriangle, Check, Heart, ListMusic, Tag, EyeOff, Keyboard, Palette } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import ThemePicker from './ThemeSwitcher';
 import { useSettingsStore, type StealthStyle } from '../store/useSettingsStore';
 import { comboFromEvent, formatCombo, heldModifiers, validateCombo, type Combo } from '../utils/shortcutUtils';
 import { exportUserData, importUserData } from '../utils/backupUtils';
@@ -82,6 +83,17 @@ export default function SettingsModal({ open, onClose }: Props) {
         </div>
 
         <div className="p-5">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-content">
+            <Palette className="h-4 w-4 text-primary" />
+            Appearance
+          </h3>
+          <p className="mt-1 text-xs text-content/50">Pick a look — applies instantly.</p>
+          <div className="mt-3">
+            <ThemePicker />
+          </div>
+
+          <div className="my-6 h-px bg-content/10" />
+
           <StealthSettings />
 
           <div className="my-6 h-px bg-content/10" />

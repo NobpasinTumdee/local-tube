@@ -70,7 +70,7 @@ All file access is confined to the single directory handle *you* explicitly auth
 | 🎞️ | **Multi-Media Support** | Videos **and** images live together in one unified, uniform grid. |
 | 🧩 | **Multi-Media Layout Mode** | Watch/view several items at once in custom grid templates (Single, 1+2, 2×2, 3×3, **Auto**, and a fully **Custom** N×M grid) — freely mixing videos and images, with per-tile and master controls + fullscreen. |
 | 📐 | **Customizable Uniform Grid** | Choose a card **aspect ratio** (16:9 · 9:16 · 1:1) and **column count** (Auto · 2–6). All cards stay perfectly uniform; media fills cleanly via `object-cover`. |
-| 🎨 | **Dynamic Theme System** | Six CSS-variable-driven themes — **Default Dark, OLED Black, Retro Terminal, Deep Sea, Cyberpunk, Soft Light** — swap instantly with live swatch previews. |
+| 🎨 | **Dynamic Theme System** | Six CSS-variable-driven themes — **Default Dark, OLED Black, Retro Terminal, Deep Sea, Cyberpunk, Soft Light** — swap instantly with live swatch previews, under **Settings → Appearance**. |
 | 🍿 | **Streaming-Service UI/UX** | Cinematic cards, hover video previews, folder "shelves", and a YouTube-style **Ambient Glow** (cinema mode) behind the player. |
 | ❤️ | **Virtual Library** | Favorites, Virtual Playlists, and Custom Tagging + an advanced tag/type **Filter Bar** — all virtual, all local. |
 | 💾 | **Backup Export / Import** | One-click **JSON backup** of all your favorites, playlists, tags, theme, and watch progress — restore on any device. Never touches physical files. |
@@ -162,7 +162,17 @@ A virtual playlist whose **membership list is encrypted at rest**. Set a PIN (6+
 
 ## 🪟 Document Picture-in-Picture
 
-Pop the **entire grid UI** — tiles, master controls and all — into a floating always-on-top window, rather than the bare video track `<video>.requestPictureInPicture()` gives you. Use the **⧉ Pop out** button in the player controls; where the API is unsupported it falls back to native PiP automatically.
+Pop a whole **interactive panel** — not the bare video track `<video>.requestPictureInPicture()` gives you — into a floating always-on-top window. Three surfaces support it:
+
+| Surface | Where the button is | Good for |
+|---|---|---|
+| **Multi-media grid** | Player controls (**⧉ Pop out**) | Keep watching while you work in another app |
+| **Room chat** | Chat drawer header | Chat beside a fullscreen video without a drawer over it |
+| **Watch party room** | Room header | Keep the host's stream on top while you browse your own library |
+
+In the player the button falls back to native `<video>` PiP where Document PiP is unsupported. The chat and room buttons simply don't render there — there's no meaningful fallback for a panel, and a dead control is worse than none.
+
+The browser allows **one** popout per document, so opening a second surface replaces the first. Whatever is popped out stands down in the main window: two live copies of the chat would fight over scroll position and composer focus, and two copies of the room would fight over a single `MediaStream`. If the surface goes away underneath it — the chat is closed, the room is left, the kill switch fires — the popout closes itself rather than sitting on top of your screen showing a dead panel.
 
 The popout shares this page's JS realm, so every Zustand store is literally the same object and state sharing needs no bridge. What it does *not* share is the document — which means two things have to be carried across by hand, and both are load-bearing:
 
@@ -393,9 +403,12 @@ LocalTube/
 │       ├── StealthOverlay.tsx  # 🕶️ The z-9999 privacy screen (blackout / fake
 │       │                       #    terminal) + tab-title swap. Portalled to <body>.
 │       ├── VaultModal.tsx      # 🔐 PIN pad: setup, confirm, unlock, destroy
-│       ├── PiPStage.tsx        # 🪟 Portals the multi-grid into the Doc PiP window
+│       ├── PiPStage.tsx        # 🪟 Portals the grid / chat / room into the Doc
+│       │                       #    PiP window; closes it if the surface dies
+│       ├── PopOutButton.tsx    # 🪟 Shared Doc PiP trigger (renders nothing where
+│       │                       #    unsupported rather than showing a dead control)
 │       ├── Scrubber.tsx        # 🎞️ Progress bar + hover thumbnail tooltip
-│       ├── Header.tsx          # Top bar: search, Workspace button, layout/theme/settings
+│       ├── Header.tsx          # Top bar: search, Workspace button, layout, settings
 │       ├── Sidebar.tsx         # Library nav, folder tree, Favorites, Vault, Playlists
 │       ├── Breadcrumb.tsx      # Folder path breadcrumb
 │       ├── FilterBar.tsx       # Media-type + dynamic tag filters (Framer Motion)
@@ -408,8 +421,9 @@ LocalTube/
 │       ├── MediaTile.tsx       # One layout slot: video player OR image (zoom/pan)
 │       ├── AmbientGlow.tsx     # Canvas-sampled cinema-glow effect (perf-guarded)
 │       ├── LayoutSelector.tsx  # Layout toggle + templates + custom grid builder
-│       ├── ThemeSwitcher.tsx   # Theme picker with live swatches
-│       ├── SettingsModal.tsx   # Stealth Mode config (shortcut recorder, cover style)
+│       ├── ThemeSwitcher.tsx   # Theme picker list with live swatches — hosted by
+│       │                       #    SettingsModal, no longer its own header button
+│       ├── SettingsModal.tsx   # Appearance (themes) + Stealth Mode config
 │       │                       #    + Data Management: backup export / restore
 │       ├── WebRTCBar.tsx       # 🤝 P2P entry point: create/join room, peer list,
 │       │                       #    security log, chat toggle + KILL SWITCH

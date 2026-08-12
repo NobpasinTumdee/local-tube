@@ -8,7 +8,7 @@ import Scrubber from './Scrubber';
 import { PlayerGoLiveButton } from './BroadcastView';
 import { setActiveVideoElement } from '../services/mediaElementRegistry';
 import { useScrubFrames } from '../hooks/useScrubFrames';
-import { useDocumentPiP } from '../hooks/useDocumentPiP';
+import { useDocumentPiP, useIsPoppedOut } from '../hooks/useDocumentPiP';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 /* ───── Icons ───── */
 const PlayIcon = () => (_jsx("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-5 w-5", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M8 5v14l11-7z" }) }));
@@ -39,7 +39,10 @@ export default function Player() {
     const toggleAmbientMode = useStore((s) => s.toggleAmbientMode);
     const addToLayout = useStore((s) => s.addToLayout);
     const setLayoutMode = useStore((s) => s.setLayoutMode);
-    const { supported: pipSupported, pipWindow, open: openPiP, close: closePiP, } = useDocumentPiP();
+    const { supported: pipSupported, open: openPiP, close: closePiP, } = useDocumentPiP();
+    /* Only the grid counts here — the chat or the room being popped out must
+       not make this button read as "already out". */
+    const pipWindow = useIsPoppedOut('grid');
     const video = useMemo(() => videos.find((v) => v.id === currentVideoId), [videos, currentVideoId]);
     /*
      * Next video = files[currentIndex + 1] within the current playback queue
@@ -305,7 +308,7 @@ export default function Player() {
         if (video && !slots.some((id) => id === video.id))
             addToLayout(video.id, 0);
         setLayoutMode(true);
-        await openPiP({ width: 720, height: 460 });
+        await openPiP('grid', { width: 720, height: 460 });
     };
     const toggleFullscreen = () => {
         if (document.fullscreenElement)

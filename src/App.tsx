@@ -14,7 +14,7 @@ import VaultModal from './components/VaultModal';
 import { useStealthMode } from './hooks/useStealthMode';
 import { useVaultHiddenIds, useVaultSession } from './hooks/useVaultGuard';
 import { useVaultStore } from './store/useVaultStore';
-import { usePiPStore } from './hooks/useDocumentPiP';
+import { useIsPoppedOut } from './hooks/useDocumentPiP';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -59,7 +59,9 @@ export default function App() {
   const vaultHiddenIds = useVaultHiddenIds();
   const vaultMediaIds = useVaultStore((s) => s.mediaIds);
   const isVaultUnlocked = useVaultStore((s) => s.isVaultUnlocked);
-  const pipWindow = usePiPStore((s) => s.pipWindow);
+  /* Only the GRID moving out should blank the inline grid — the chat or the
+     watch-party room being popped out must leave the library alone. */
+  const gridPoppedOut = useIsPoppedOut('grid');
 
   useEffect(() => {
     void hydrateWorkspace();
@@ -290,12 +292,12 @@ export default function App() {
             {/* While the grid is popped out, PiPStage owns it. Rendering both
                 would build two <video> elements per file — double decode,
                 double audio, slightly out of sync. */}
-            {layoutMode && !pipWindow && (
+            {layoutMode && !gridPoppedOut && (
               <div className="mb-6">
                 <MediaViewer />
               </div>
             )}
-            {layoutMode && pipWindow && (
+            {layoutMode && gridPoppedOut && (
               <div className="mb-6 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-content/10 bg-content/[0.02] py-10 text-sm text-content/40">
                 Playing in the pop-out window.
               </div>

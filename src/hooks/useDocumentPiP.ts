@@ -44,19 +44,36 @@ export function isDocumentPiPSupported(): boolean {
  * and the button that reflects open/closed. A hook-local useState would
  * only be visible to whoever called the hook.
  */
+/**
+ * Which surface is currently popped out.
+ *
+ * The browser allows exactly ONE Document PiP window per document, so this
+ * is a single value rather than a set: popping out the chat while the grid
+ * is out replaces it. Each host component checks this to decide whether to
+ * render itself in the main window or stand down and let PiPStage own it.
+ */
+export type PiPContent = 'grid' | 'chat' | 'party';
+
 interface PiPStore {
   pipWindow: Window | null;
+  content: PiPContent | null;
   error: string | null;
-  set: (w: Window | null) => void;
+  set: (w: Window | null, content?: PiPContent | null) => void;
   setError: (e: string | null) => void;
 }
 
 export const usePiPStore = create<PiPStore>()((set) => ({
   pipWindow: null,
+  content: null,
   error: null,
-  set: (w) => set({ pipWindow: w }),
+  set: (w, content = null) => set({ pipWindow: w, content: w ? content : null }),
   setError: (e) => set({ error: e }),
 }));
+
+/** True when `what` is the surface currently living in the popout. */
+export function useIsPoppedOut(what: PiPContent): boolean {
+  return usePiPStore((s) => !!s.pipWindow && s.content === what);
+}
 
 /**
  * Non-React accessor. Stealth mode has to reach into the PiP document to
@@ -101,13 +118,15 @@ export function copyStyles(target: Document): void {
 export interface DocumentPiPState {
   supported: boolean;
   pipWindow: Window | null;
-  open: (opts?: { width?: number; height?: number }) => Promise<Window | null>;
+  content: PiPContent | null;
+  open: (content: PiPContent, opts?: { width?: number; height?: number }) => Promise<Window | null>;
   close: () => void;
   error: string | null;
 }
 
 export function useDocumentPiP(): DocumentPiPState {
   const pipWindow = usePiPStore((s) => s.pipWindow);
+  const content = usePiPStore((s) => s.content);
   const error = usePiPStore((s) => s.error);
   const setPipWindow = usePiPStore((s) => s.set);
   const setError = usePiPStore((s) => s.setError);
@@ -120,13 +139,20 @@ export function useDocumentPiP(): DocumentPiPState {
   }, [setPipWindow]);
 
   const open = useCallback(
-    async (opts?: { width?: number; height?: number }) => {
+    async (what: PiPContent, opts?: { width?: number; height?: number }) => {
       const dpip = api();
       if (!dpip) {
         setError('This browser has no Document Picture-in-Picture. Use Chrome or Edge 116+.');
         return null;
       }
       try {
+        /*
+         * One popout per document. Closing the previous one first is
+         * synchronous, so it does not consume the user gesture that the
+         * requestWindow() below still needs.
+         */
+        const existing = usePiPStore.getState().pipWindow;
+        if (existing && !existing.closed) existing.close();
         /*
          * requestWindow() consumes a user gesture, so it must be the first
          * await in the click handler that calls this.
@@ -159,7 +185,7 @@ export function useDocumentPiP(): DocumentPiPState {
            'unload' can miss. */
         w.addEventListener('pagehide', onUnload, { once: true });
 
-        setPipWindow(w);
+        setPipWindow(w, what);
         setError(null);
         return w;
       } catch (err) {
@@ -185,5 +211,5 @@ export function useDocumentPiP(): DocumentPiPState {
     return () => window.removeEventListener('pagehide', onPageHide);
   }, []);
 
-  return { supported, pipWindow, open, close, error };
+  return { supported, pipWindow, content, open, close, error };
 }

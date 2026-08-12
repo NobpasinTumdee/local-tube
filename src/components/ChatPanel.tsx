@@ -22,6 +22,8 @@ import {
 import { useWebRTCStore, selectAuthenticatedPeers } from '../store/useWebRTCStore';
 import { CHAT_MAX_FILE_BYTES, CHAT_MAX_TEXT_CHARS, CHAT_ROOM_TARGET } from '../services/p2pProtocol';
 import { sendChatAttachment, sendChatMessage } from '../services/webrtcService';
+import { useIsPoppedOut } from '../hooks/useDocumentPiP';
+import PopOutButton from './PopOutButton';
 import { formatBytes } from './WebRTCBar';
 
 /* ─────────────────────────────────────────────────────────────
@@ -44,19 +46,30 @@ const EMOJI = [
   '😱', '😭', '🤯', '💀', '🤡', '🥳', '😅', '🫠',
 ];
 
+/**
+ * The drawer as it appears in the main window.
+ *
+ * Renders nothing while the chat is popped out — ChatPanelBody is mounted
+ * inside the PiP window instead. Two copies would each subscribe to the same
+ * store and fight over scroll position and the composer's focus.
+ */
 export default function ChatPanel() {
   const open = useChatStore((s) => s.open);
   const setOpen = useChatStore((s) => s.setOpen);
+  const poppedOut = useIsPoppedOut('chat');
   const activeTab = useChatStore((s) => s.activeTab);
   const setActiveTab = useChatStore((s) => s.setActiveTab);
-  const unread = useChatStore((s) => s.unread);
-  const messages = useChatStore((s) => s.messages);
 
   const peers = useWebRTCStore(selectAuthenticatedPeers);
   const status = useWebRTCStore((s) => s.status);
   const live = status !== 'disconnected';
 
-  /* A whisper tab whose peer left falls back to the room. */
+  /*
+   * A whisper tab whose peer left falls back to the room. This stays on the
+   * outer component rather than the body, because it must keep running while
+   * the chat is popped out — the drawer is unmounted then, but the tab it
+   * points at can still go stale.
+   */
   useEffect(() => {
     if (activeTab === CHAT_ROOM_TARGET) return;
     if (!peers.some((p) => p.id === activeTab)) setActiveTab(CHAT_ROOM_TARGET);
@@ -64,25 +77,45 @@ export default function ChatPanel() {
 
   /* Escape closes the drawer, matching every other overlay in the app. */
   useEffect(() => {
-    if (!open) return;
+    if (!open || poppedOut) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, setOpen]);
+  }, [open, poppedOut, setOpen]);
+
+  if (!open || !live || poppedOut) return null;
+
+  return createPortal(
+    <div className="fixed inset-y-0 right-0 z-[320] flex w-full max-w-md flex-col border-l border-content/10 bg-surface shadow-2xl shadow-black/60">
+      <ChatPanelBody />
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * The chat itself, with no positioning of its own, so the same tree works
+ * as a right-hand drawer in the main window and as the whole viewport of a
+ * picture-in-picture window.
+ */
+export function ChatPanelBody({ embedded = false }: { embedded?: boolean }) {
+  const setOpen = useChatStore((s) => s.setOpen);
+  const activeTab = useChatStore((s) => s.activeTab);
+  const setActiveTab = useChatStore((s) => s.setActiveTab);
+  const unread = useChatStore((s) => s.unread);
+  const messages = useChatStore((s) => s.messages);
+  const peers = useWebRTCStore(selectAuthenticatedPeers);
 
   const thread = useMemo(
     () => messages.filter((m) => m.threadId === activeTab),
     [messages, activeTab],
   );
-
   const activePeer = peers.find((p) => p.id === activeTab);
 
-  if (!open || !live) return null;
-
-  return createPortal(
-    <div className="fixed inset-y-0 right-0 z-[320] flex w-full max-w-md flex-col border-l border-content/10 bg-surface shadow-2xl shadow-black/60">
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col bg-surface">
       {/* ── header ── */}
       <div className="flex items-center gap-2 border-b border-content/10 px-4 py-3">
         <MessageSquare className="h-4 w-4 text-primary" />
@@ -90,13 +123,21 @@ export default function ChatPanel() {
         <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400">
           Not saved
         </span>
-        <button
-          onClick={() => setOpen(false)}
-          className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
-          aria-label="Close chat"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <PopOutButton content="chat" title="Pop chat out into a floating window" />
+          {/* In the popout the window's own close button is the way out, and
+              a second one that only hides the drawer behind it would strand
+              the user looking at an empty window. */}
+          {!embedded && (
+            <button
+              onClick={() => setOpen(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content"
+              aria-label="Close chat"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── tabs ── */}
@@ -127,8 +168,7 @@ export default function ChatPanel() {
         targetName={activePeer?.name}
         disabled={peers.length === 0}
       />
-    </div>,
-    document.body,
+    </div>
   );
 }
 
