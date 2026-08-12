@@ -1,10 +1,13 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PlayCircle, X, Sparkles } from 'lucide-react';
+import { PlayCircle, X, Sparkles, ExternalLink } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import AmbientGlow from './AmbientGlow';
+import Scrubber from './Scrubber';
 import { PlayerGoLiveButton } from './BroadcastView';
 import { setActiveVideoElement } from '../services/mediaElementRegistry';
+import { useScrubFrames } from '../hooks/useScrubFrames';
+import { useDocumentPiP } from '../hooks/useDocumentPiP';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
 
@@ -71,6 +74,15 @@ export default function Player() {
   const setPlaybackProgress = useStore((s) => s.setPlaybackProgress);
   const isAmbientMode = useStore((s) => s.isAmbientMode);
   const toggleAmbientMode = useStore((s) => s.toggleAmbientMode);
+  const addToLayout = useStore((s) => s.addToLayout);
+  const setLayoutMode = useStore((s) => s.setLayoutMode);
+
+  const {
+    supported: pipSupported,
+    pipWindow,
+    open: openPiP,
+    close: closePiP,
+  } = useDocumentPiP();
 
   const video = useMemo(
     () => videos.find((v) => v.id === currentVideoId),
@@ -124,8 +136,11 @@ export default function Player() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const progressRef = useRef<HTMLDivElement>(null);
   const lastSaveRef = useRef(0);
+
+  /* Hover-scrub filmstrip. Cached per file; extracted lazily once playback
+     has settled, so it never competes with the first seconds of decode. */
+  const { frames: scrubFrames, loading: scrubLoading } = useScrubFrames(video);
 
   /* Persist "continue watching" position (cleared when finished / barely started). */
   const saveProgress = useCallback(() => {
@@ -283,13 +298,11 @@ export default function Player() {
     }, 3000);
   }, []);
 
-  const seek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const seekTo = useCallback((time: number) => {
     const el = videoRef.current;
-    const bar = progressRef.current;
-    if (!el || !bar) return;
-    const rect = bar.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    el.currentTime = ratio * el.duration;
+    if (!el || !Number.isFinite(time)) return;
+    el.currentTime = Math.max(0, Math.min(el.duration || 0, time));
+    setCurrent(el.currentTime);
   }, []);
 
   const togglePip = async () => {
@@ -299,6 +312,31 @@ export default function Player() {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else await el.requestPictureInPicture();
     } catch { /* unsupported */ }
+  };
+
+  /*
+   * "Pop out" moves the multi-grid into an always-on-top window. The current
+   * video is seeded into a slot first so the popout is never empty, and
+   * layout mode is switched on so the main window hands ownership over
+   * cleanly (App stops rendering the inline grid while PiP is open).
+   *
+   * documentPictureInPicture.requestWindow() consumes the user gesture, so
+   * openPiP must be the first await in this handler — the store writes
+   * before it are synchronous, which is why they are safe here.
+   */
+  const popOut = async () => {
+    if (!pipSupported) {
+      await togglePip(); // fall back to native <video> PiP
+      return;
+    }
+    if (pipWindow) {
+      closePiP();
+      return;
+    }
+    const slots = useStore.getState().activeMedia;
+    if (video && !slots.some((id) => id === video.id)) addToLayout(video.id, 0);
+    setLayoutMode(true);
+    await openPiP({ width: 720, height: 460 });
   };
 
   const toggleFullscreen = () => {
@@ -404,16 +442,14 @@ export default function Player() {
                   showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
                 }`}
               >
-                {/* progress */}
-                <div ref={progressRef} className="group/bar relative flex h-5 cursor-pointer items-center" onClick={seek}>
-                  <div className="h-[3px] w-full rounded-full bg-content/20 transition-all group-hover/bar:h-[5px]">
-                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-                  </div>
-                  <div
-                    className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-primary opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
-                    style={{ left: `calc(${progress}% - 7px)` }}
-                  />
-                </div>
+                {/* progress + hover-scrub preview */}
+                <Scrubber
+                  current={current}
+                  duration={duration}
+                  frames={scrubFrames}
+                  extracting={scrubLoading}
+                  onSeek={seekTo}
+                />
 
                 {/* buttons */}
                 <div className="flex items-center gap-2">
@@ -458,6 +494,25 @@ export default function Player() {
                     <MiniIcon />
                   </button>
                   <button onClick={togglePip} className="flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content" aria-label="Picture in Picture"><PipIcon /></button>
+
+                  {/* Document PiP — pops the whole grid UI out, not just the
+                      video track. Falls back to native PiP where unsupported. */}
+                  <button
+                    onClick={() => void popOut()}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${
+                      pipWindow ? 'text-primary' : 'text-content/70 hover:text-content'
+                    }`}
+                    aria-label={pipWindow ? 'Close pop-out window' : 'Pop out (Document PiP)'}
+                    title={
+                      pipSupported
+                        ? pipWindow
+                          ? 'Close the pop-out window'
+                          : 'Pop out the player UI into a floating window'
+                        : 'Pop out video (Document PiP needs Chrome or Edge 116+)'
+                    }
+                  >
+                    <ExternalLink className="h-5 w-5" />
+                  </button>
                   <button onClick={() => setTheaterMode(!theaterMode)} className={`flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${theaterMode ? 'text-content' : 'text-content/70 hover:text-content'}`} aria-label="Theater mode"><TheaterIcon /></button>
                   <button onClick={toggleFullscreen} className="flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content" aria-label="Fullscreen"><FullscreenIcon /></button>
                 </div>

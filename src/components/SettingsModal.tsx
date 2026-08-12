@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, Upload, Database, AlertTriangle, Check, Heart, ListMusic, Tag } from 'lucide-react';
+import { X, Download, Upload, Database, AlertTriangle, Check, Heart, ListMusic, Tag, EyeOff, Keyboard } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useSettingsStore, type StealthStyle } from '../store/useSettingsStore';
+import { comboFromEvent, formatCombo, heldModifiers, validateCombo, type Combo } from '../utils/shortcutUtils';
 import { exportUserData, importUserData } from '../utils/backupUtils';
 
 interface Props {
@@ -64,7 +66,7 @@ export default function SettingsModal({ open, onClose }: Props) {
         aria-modal="true"
         aria-label="Settings"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-content/10 bg-surface shadow-2xl shadow-black/50"
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-content/10 bg-surface shadow-2xl shadow-black/50 scrollbar-thin"
       >
         {/* header */}
         <div className="flex items-center gap-2 border-b border-content/10 px-5 py-4">
@@ -80,6 +82,10 @@ export default function SettingsModal({ open, onClose }: Props) {
         </div>
 
         <div className="p-5">
+          <StealthSettings />
+
+          <div className="my-6 h-px bg-content/10" />
+
           <h3 className="text-sm font-semibold text-content">Data Management</h3>
           <p className="mt-1 text-xs text-content/50">
             Your favorites, playlists, tags, theme and watch progress live only in this browser.
@@ -146,6 +152,193 @@ export default function SettingsModal({ open, onClose }: Props) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+ *  STEALTH MODE SETTINGS
+ * ───────────────────────────────────────────────────────────── */
+
+function StealthSettings() {
+  const shortcut = useSettingsStore((s) => s.stealthShortcut);
+  const setShortcut = useSettingsStore((s) => s.setStealthShortcut);
+  const style = useSettingsStore((s) => s.stealthStyle);
+  const setStyle = useSettingsStore((s) => s.setStealthStyle);
+  const onBlur = useSettingsStore((s) => s.stealthOnBlur);
+  const setOnBlur = useSettingsStore((s) => s.setStealthOnBlur);
+  const setStealthActive = useSettingsStore((s) => s.setStealthActive);
+
+  const [recording, setRecording] = useState(false);
+  const [pending, setPending] = useState<string[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  /*
+   * While recording, this listener must win against everything — including
+   * the app's own global shortcuts and stealth mode itself. Capture phase
+   * plus preventDefault stops Ctrl+Escape from triggering a panic while the
+   * user is in the middle of assigning Ctrl+Escape.
+   */
+  useEffect(() => {
+    if (!recording) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        setRecording(false);
+        setPending([]);
+        return;
+      }
+
+      const combo = comboFromEvent(e);
+      if (!combo) {
+        /* Modifiers only so far — show them building up. */
+        setPending(heldModifiers(e));
+        return;
+      }
+      const problem = validateCombo(combo);
+      if (problem) {
+        setErr(problem);
+        setPending(combo);
+        return;
+      }
+      setShortcut(combo as Combo);
+      setErr(null);
+      setPending([]);
+      setRecording(false);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      e.preventDefault();
+      setPending(heldModifiers(e));
+    };
+
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    window.addEventListener('keyup', onKeyUp, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, { capture: true });
+      window.removeEventListener('keyup', onKeyUp, { capture: true });
+    };
+  }, [recording, setShortcut]);
+
+  return (
+    <>
+      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-content">
+        <EyeOff className="h-4 w-4 text-primary" />
+        Stealth Mode
+      </h3>
+      <p className="mt-1 text-xs leading-relaxed text-content/50">
+        A panic key that instantly blanks the screen and mutes every player. Press it again to come
+        back — playback keeps running underneath, and anything you had already muted stays muted.
+      </p>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-content/50">
+        Shortcut
+      </label>
+      <div className="mt-1.5 flex gap-2">
+        <button
+          onClick={() => {
+            setRecording((r) => !r);
+            setPending([]);
+            setErr(null);
+          }}
+          className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border text-sm font-bold tracking-wide transition ${
+            recording
+              ? 'animate-pulse border-primary bg-primary/10 text-primary'
+              : 'border-content/10 bg-content/[0.04] text-content hover:bg-content/10'
+          }`}
+        >
+          <Keyboard className="h-4 w-4" />
+          {recording
+            ? pending.length
+              ? formatCombo(pending)
+              : 'Press a combination…'
+            : formatCombo(shortcut)}
+        </button>
+        {recording && (
+          <button
+            onClick={() => {
+              setRecording(false);
+              setPending([]);
+              setErr(null);
+            }}
+            className="h-11 shrink-0 rounded-xl bg-content/[0.06] px-4 text-sm font-semibold text-content/70 transition hover:bg-content/10"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+      {err && <p className="mt-1.5 text-xs text-amber-500">{err}</p>}
+      {recording && !err && (
+        <p className="mt-1.5 text-[11px] text-content/40">
+          Hold one or more modifiers and press a key. Esc alone cancels.
+        </p>
+      )}
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-content/50">
+        Cover screen
+      </label>
+      <div className="mt-1.5 grid grid-cols-2 gap-2">
+        <StyleOption current={style} value="blackout" label="Blackout" onSelect={setStyle}>
+          A plain black screen.
+        </StyleOption>
+        <StyleOption current={style} value="terminal" label="Fake terminal" onSelect={setStyle}>
+          A build log that looks like work.
+        </StyleOption>
+      </div>
+
+      <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-xl border border-content/10 bg-content/[0.03] p-3">
+        <input
+          type="checkbox"
+          checked={onBlur}
+          onChange={(e) => setOnBlur(e.target.checked)}
+          className="mt-0.5 accent-current"
+        />
+        <span className="text-xs leading-relaxed text-content/70">
+          <span className="font-semibold text-content">Also hide when I switch windows.</span> Covers
+          alt-tabbing and screen-share pickers. Off by default because it also triggers every time you
+          click into another app.
+        </span>
+      </label>
+
+      <button
+        onClick={() => setStealthActive(true)}
+        className="mt-3 w-full rounded-xl bg-content/[0.06] py-2.5 text-sm font-semibold text-content transition hover:bg-content/10"
+      >
+        Try it now — {formatCombo(shortcut)} to come back
+      </button>
+    </>
+  );
+}
+
+function StyleOption({
+  current,
+  value,
+  label,
+  children,
+  onSelect,
+}: {
+  current: StealthStyle;
+  value: StealthStyle;
+  label: string;
+  children: React.ReactNode;
+  onSelect: (v: StealthStyle) => void;
+}) {
+  const active = current === value;
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={() => onSelect(value)}
+      className={`rounded-xl border p-3 text-left transition ${
+        active ? 'border-primary/50 bg-primary/[0.08]' : 'border-content/10 bg-content/[0.02] hover:bg-content/[0.05]'
+      }`}
+    >
+      <span className={`block text-sm font-semibold ${active ? 'text-primary' : 'text-content'}`}>{label}</span>
+      <span className="mt-0.5 block text-[11px] leading-snug text-content/50">{children}</span>
+    </button>
   );
 }
 

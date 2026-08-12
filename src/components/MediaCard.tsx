@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock, Heart, ListPlus, Check, Tag, Hash, X } from 'lucide-react';
+import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock, Heart, ListPlus, Check, Tag, Hash, X, Lock } from 'lucide-react';
 import { useStore, normalizeTag } from '../store/useStore';
+import { useVaultStore } from '../store/useVaultStore';
 import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
 import { formatDuration, formatRelative, formatResolution } from '../utils/format';
 import { DND_MEDIA_ID } from '../utils/layoutGrid';
@@ -12,6 +13,35 @@ interface Props {
 }
 
 const HOVER_DELAY_MS = 500;
+
+/**
+ * "Move to Private Vault" row in the card menu.
+ *
+ * Renders nothing while the vault is locked: offering it would either need
+ * the decrypted membership (which we don't have) or would silently queue a
+ * change against a list we can't read.
+ */
+function VaultMenuItem({ mediaId }: { mediaId: string }) {
+  const isUnlocked = useVaultStore((s) => s.isVaultUnlocked);
+  const inVault = useVaultStore((s) => s.mediaIds.includes(mediaId));
+  const addToVault = useVaultStore((s) => s.addToVault);
+  const removeFromVault = useVaultStore((s) => s.removeFromVault);
+
+  if (!isUnlocked) return null;
+
+  return (
+    <button
+      onClick={() => void (inVault ? removeFromVault(mediaId) : addToVault(mediaId))}
+      className="flex w-full items-center gap-2 border-t border-content/10 px-3 py-2 text-left text-sm text-content/80 transition hover:bg-content/10"
+    >
+      <Lock className={`h-3.5 w-3.5 shrink-0 ${inVault ? 'text-primary' : 'text-content/40'}`} />
+      <span className="min-w-0 flex-1 truncate">
+        {inVault ? 'Remove from Private Vault' : 'Move to Private Vault'}
+      </span>
+      {inVault && <Check className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={3} />}
+    </button>
+  );
+}
 
 export default function MediaCard({ video }: Props) {
   const meta = useStore((s) => s.videoMeta[video.id]);
@@ -400,6 +430,10 @@ export default function MediaCard({ video }: Props) {
                 );
               })}
             </div>
+            {/* Vault membership — only offered while unlocked, since moving
+                something in or out requires the decrypted list. */}
+            <VaultMenuItem mediaId={video.id} />
+
             <div className="flex items-center gap-1 border-t border-content/10 p-2">
               <input
                 value={newName}

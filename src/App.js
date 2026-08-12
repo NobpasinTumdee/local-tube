@@ -4,6 +4,13 @@ import { useStore } from './store/useStore';
 import { useLibraryStore } from './store/useLibraryStore';
 import { scanMultipleDirectories, getAllFilesRecursively, emptyScanResult, } from './utils/directoryScanner';
 import LibraryManager from './components/LibraryManager';
+import StealthOverlay from './components/StealthOverlay';
+import PiPStage from './components/PiPStage';
+import VaultModal from './components/VaultModal';
+import { useStealthMode } from './hooks/useStealthMode';
+import { useVaultHiddenIds, useVaultSession } from './hooks/useVaultGuard';
+import { useVaultStore } from './store/useVaultStore';
+import { usePiPStore } from './hooks/useDocumentPiP';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -37,6 +44,14 @@ export default function App() {
     const addHandleToActive = useLibraryStore((s) => s.addHandleToActive);
     const setScanning = useStore((s) => s.setScanning);
     const [managerOpen, setManagerOpen] = useState(false);
+    const [vaultOpen, setVaultOpen] = useState(false);
+    /* ── privacy & vault (mounted once, at the root) ────────── */
+    useStealthMode();
+    useVaultSession();
+    const vaultHiddenIds = useVaultHiddenIds();
+    const vaultMediaIds = useVaultStore((s) => s.mediaIds);
+    const isVaultUnlocked = useVaultStore((s) => s.isVaultUnlocked);
+    const pipWindow = usePiPStore((s) => s.pipWindow);
     useEffect(() => {
         void hydrateWorkspace();
     }, [hydrateWorkspace]);
@@ -158,20 +173,37 @@ export default function App() {
             }
             return true;
         };
+        /*
+         * The vault hides its members from every OTHER view while locked. It can
+         * do that without knowing which files they are: useVaultHiddenIds
+         * resolves the stored salted digests against the current library, so
+         * this stays a plain Set lookup. Unlocked, the set is empty and the
+         * items reappear normally.
+         */
+        const isHidden = (v) => vaultHiddenIds.has(v.id);
         /* Virtual collections resolve mediaIds → entries, preserving their order. */
         if (collection.type !== 'all') {
             const ids = collection.type === 'favorites'
                 ? favorites
-                : virtualPlaylists.find((p) => p.id === collection.playlistId)?.mediaIds ?? [];
+                : collection.type === 'vault'
+                    ? vaultMediaIds
+                    : virtualPlaylists.find((p) => p.id === collection.playlistId)?.mediaIds ?? [];
             const byId = new Map(videos.map((v) => [v.id, v]));
             return ids
                 .map((id) => byId.get(id))
-                .filter((v) => !!v && matchesSearchAndType(v));
+                .filter((v) => {
+                if (!v || !matchesSearchAndType(v))
+                    return false;
+                /* The vault's own view is the one place hidden items belong. */
+                return collection.type === 'vault' || !isHidden(v);
+            });
         }
         const idSet = !q && viewMode === 'flat'
             ? new Set(getAllFilesRecursively(videos, currentFolderPath))
             : null;
         return videos.filter((v) => {
+            if (isHidden(v))
+                return false;
             if (q) {
                 return matchesSearchAndType(v); // global search
             }
@@ -184,7 +216,18 @@ export default function App() {
             }
             return matchesSearchAndType(v);
         });
-    }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists, mediaTags, activeFilterTags]);
+    }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists, mediaTags, activeFilterTags, vaultHiddenIds, vaultMediaIds]);
+    /* A locked vault must not leave its items selected in the grid or queued
+       for autoplay — that would leak them right past the filter above. */
+    useEffect(() => {
+        if (isVaultUnlocked)
+            return;
+        const s = useStore.getState();
+        if (s.currentVideoId && vaultHiddenIds.has(s.currentVideoId))
+            s.closePlayer();
+        if (s.collection.type === 'vault')
+            s.setCollection({ type: 'all' });
+    }, [isVaultUnlocked, vaultHiddenIds]);
     /*
      * Keep the player's playback queue aligned with what the user is browsing,
      * so "next video" = files[currentIndex + 1] within the current folder/filter.
@@ -208,9 +251,9 @@ export default function App() {
      * so the P2P viewers are mounted on this branch too.
      */
     if (activeHandles.length === 0 && pendingRestore.length === 0) {
-        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onSelectFolder: pickFolder, onOpenPresets: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
+        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onSelectFolder: pickFolder, onOpenPresets: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), _jsx(StealthOverlay, {}), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
     }
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
-    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onOpenWorkspace: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, {}), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {}), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
+    return (_jsxs("div", { className: "min-h-screen bg-base text-content", children: [_jsx(Header, { onOpenWorkspace: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), showHome && (_jsxs("div", { className: "flex pt-14", children: [sidebarOpen && _jsx(Sidebar, { onOpenVault: () => setVaultOpen(true) }), _jsxs("main", { className: "flex-1 overflow-y-auto p-6", children: [layoutMode && !pipWindow && (_jsx("div", { className: "mb-6", children: _jsx(MediaViewer, {}) })), layoutMode && pipWindow && (_jsx("div", { className: "mb-6 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-content/10 bg-content/[0.02] py-10 text-sm text-content/40", children: "Playing in the pop-out window." })), _jsxs("div", { className: "mb-6 flex flex-wrap items-center gap-3", children: [_jsx("div", { className: "min-w-0 flex-1", children: _jsx(FilterBar, {}) }), _jsx(GridSettingsBar, {})] }), _jsx(MediaGrid, { videos: visible })] })] })), !layoutMode && currentVideoId && _jsx(Player, {}), currentImageId && view === 'viewing_image' && _jsx(ImageViewer, {}), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {}), _jsx(PiPStage, {}), _jsx(VaultModal, { open: vaultOpen, onClose: () => setVaultOpen(false) }), _jsx(StealthOverlay, {})] }));
 }

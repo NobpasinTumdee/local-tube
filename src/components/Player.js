@@ -1,11 +1,14 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PlayCircle, X, Sparkles } from 'lucide-react';
+import { PlayCircle, X, Sparkles, ExternalLink } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import AmbientGlow from './AmbientGlow';
+import Scrubber from './Scrubber';
 import { PlayerGoLiveButton } from './BroadcastView';
 import { setActiveVideoElement } from '../services/mediaElementRegistry';
+import { useScrubFrames } from '../hooks/useScrubFrames';
+import { useDocumentPiP } from '../hooks/useDocumentPiP';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 /* ───── Icons ───── */
 const PlayIcon = () => (_jsx("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-5 w-5", viewBox: "0 0 24 24", fill: "currentColor", children: _jsx("path", { d: "M8 5v14l11-7z" }) }));
@@ -34,6 +37,9 @@ export default function Player() {
     const setPlaybackProgress = useStore((s) => s.setPlaybackProgress);
     const isAmbientMode = useStore((s) => s.isAmbientMode);
     const toggleAmbientMode = useStore((s) => s.toggleAmbientMode);
+    const addToLayout = useStore((s) => s.addToLayout);
+    const setLayoutMode = useStore((s) => s.setLayoutMode);
+    const { supported: pipSupported, pipWindow, open: openPiP, close: closePiP, } = useDocumentPiP();
     const video = useMemo(() => videos.find((v) => v.id === currentVideoId), [videos, currentVideoId]);
     /*
      * Next video = files[currentIndex + 1] within the current playback queue
@@ -91,8 +97,10 @@ export default function Player() {
     }, [videos, video, playbackQueue]);
     const videoRef = useRef(null);
     const containerRef = useRef(null);
-    const progressRef = useRef(null);
     const lastSaveRef = useRef(0);
+    /* Hover-scrub filmstrip. Cached per file; extracted lazily once playback
+       has settled, so it never competes with the first seconds of decode. */
+    const { frames: scrubFrames, loading: scrubLoading } = useScrubFrames(video);
     /* Persist "continue watching" position (cleared when finished / barely started). */
     const saveProgress = useCallback(() => {
         const el = videoRef.current;
@@ -255,14 +263,12 @@ export default function Player() {
                 setShowControls(false);
         }, 3000);
     }, []);
-    const seek = useCallback((e) => {
+    const seekTo = useCallback((time) => {
         const el = videoRef.current;
-        const bar = progressRef.current;
-        if (!el || !bar)
+        if (!el || !Number.isFinite(time))
             return;
-        const rect = bar.getBoundingClientRect();
-        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        el.currentTime = ratio * el.duration;
+        el.currentTime = Math.max(0, Math.min(el.duration || 0, time));
+        setCurrent(el.currentTime);
     }, []);
     const togglePip = async () => {
         try {
@@ -275,6 +281,31 @@ export default function Player() {
                 await el.requestPictureInPicture();
         }
         catch { /* unsupported */ }
+    };
+    /*
+     * "Pop out" moves the multi-grid into an always-on-top window. The current
+     * video is seeded into a slot first so the popout is never empty, and
+     * layout mode is switched on so the main window hands ownership over
+     * cleanly (App stops rendering the inline grid while PiP is open).
+     *
+     * documentPictureInPicture.requestWindow() consumes the user gesture, so
+     * openPiP must be the first await in this handler — the store writes
+     * before it are synchronous, which is why they are safe here.
+     */
+    const popOut = async () => {
+        if (!pipSupported) {
+            await togglePip(); // fall back to native <video> PiP
+            return;
+        }
+        if (pipWindow) {
+            closePiP();
+            return;
+        }
+        const slots = useStore.getState().activeMedia;
+        if (video && !slots.some((id) => id === video.id))
+            addToLayout(video.id, 0);
+        setLayoutMode(true);
+        await openPiP({ width: 720, height: 460 });
     };
     const toggleFullscreen = () => {
         if (document.fullscreenElement)
@@ -318,10 +349,14 @@ export default function Player() {
                                         }, onClick: () => { const el = videoRef.current; el.paused ? el.play() : el.pause(); } }), isFull && countdown != null && nextVideo && (_jsx(CountdownOverlay, { seconds: countdown, total: COUNTDOWN_SECS, next: nextVideo, thumbnail: videoMeta[nextVideo.id]?.thumbnailUrl, onPlayNow: () => {
                                             clearCountdown();
                                             playVideo(nextVideo.id);
-                                        }, onCancel: clearCountdown })), isFull && countdown == null && (_jsxs("div", { className: `absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'pointer-events-none opacity-0'}`, children: [_jsxs("div", { ref: progressRef, className: "group/bar relative flex h-5 cursor-pointer items-center", onClick: seek, children: [_jsx("div", { className: "h-[3px] w-full rounded-full bg-content/20 transition-all group-hover/bar:h-[5px]", children: _jsx("div", { className: "h-full rounded-full bg-primary transition-all", style: { width: `${progress}%` } }) }), _jsx("div", { className: "absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-primary opacity-0 shadow transition-opacity group-hover/bar:opacity-100", style: { left: `calc(${progress}% - 7px)` } })] }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("button", { onClick: () => { const el = videoRef.current; el.paused ? el.play() : el.pause(); }, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/90 transition hover:bg-content/10", "aria-label": playing ? 'Pause' : 'Play', children: playing ? _jsx(PauseIcon, {}) : _jsx(PlayIcon, {}) }), _jsxs("div", { className: "group/vol flex items-center gap-1", children: [_jsx("button", { onClick: () => { const el = videoRef.current; el.muted = !el.muted; setMuted(el.muted); }, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/90 transition hover:bg-content/10", "aria-label": "Mute", children: _jsx(VolumeIcon, { level: muted ? 0 : volume }) }), _jsx("input", { type: "range", min: "0", max: "1", step: "0.01", value: muted ? 0 : volume, onChange: (e) => { const v = parseFloat(e.target.value); setVolume(v); setMuted(v === 0); if (videoRef.current) {
+                                        }, onCancel: clearCountdown })), isFull && countdown == null && (_jsxs("div", { className: `absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2 pt-10 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'pointer-events-none opacity-0'}`, children: [_jsx(Scrubber, { current: current, duration: duration, frames: scrubFrames, extracting: scrubLoading, onSeek: seekTo }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("button", { onClick: () => { const el = videoRef.current; el.paused ? el.play() : el.pause(); }, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/90 transition hover:bg-content/10", "aria-label": playing ? 'Pause' : 'Play', children: playing ? _jsx(PauseIcon, {}) : _jsx(PlayIcon, {}) }), _jsxs("div", { className: "group/vol flex items-center gap-1", children: [_jsx("button", { onClick: () => { const el = videoRef.current; el.muted = !el.muted; setMuted(el.muted); }, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/90 transition hover:bg-content/10", "aria-label": "Mute", children: _jsx(VolumeIcon, { level: muted ? 0 : volume }) }), _jsx("input", { type: "range", min: "0", max: "1", step: "0.01", value: muted ? 0 : volume, onChange: (e) => { const v = parseFloat(e.target.value); setVolume(v); setMuted(v === 0); if (videoRef.current) {
                                                                     videoRef.current.volume = v;
                                                                     videoRef.current.muted = v === 0;
-                                                                } }, className: "w-0 origin-left scale-x-0 opacity-0 transition-all group-hover/vol:w-20 group-hover/vol:scale-x-100 group-hover/vol:opacity-100" })] }), _jsxs("span", { className: "ml-1 text-xs tabular-nums text-content/70", children: [formatDuration(current), " / ", formatDuration(duration)] }), _jsx("div", { className: "flex-1" }), _jsx(PlayerGoLiveButton, {}), _jsx("button", { onClick: toggleAmbientMode, className: `flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${isAmbientMode ? 'text-primary' : 'text-content/70 hover:text-content'}`, "aria-label": "Ambient glow", "aria-pressed": isAmbientMode, title: isAmbientMode ? 'Ambient glow: on' : 'Ambient glow: off', children: _jsx(Sparkles, { className: "h-5 w-5" }) }), _jsx("button", { onClick: toggleMiniPlayer, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content", "aria-label": "Mini player (i)", title: "Mini player (i)", children: _jsx(MiniIcon, {}) }), _jsx("button", { onClick: togglePip, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content", "aria-label": "Picture in Picture", children: _jsx(PipIcon, {}) }), _jsx("button", { onClick: () => setTheaterMode(!theaterMode), className: `flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${theaterMode ? 'text-content' : 'text-content/70 hover:text-content'}`, "aria-label": "Theater mode", children: _jsx(TheaterIcon, {}) }), _jsx("button", { onClick: toggleFullscreen, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content", "aria-label": "Fullscreen", children: _jsx(FullscreenIcon, {}) })] })] }))] }), isFull && (_jsxs("div", { className: "flex items-start gap-3 px-4 py-4 lg:px-6", children: [_jsxs("div", { className: "flex-1 min-w-0", children: [_jsx("h1", { className: "text-lg font-semibold leading-snug text-content lg:text-xl", children: video.title }), _jsxs("div", { className: "mt-1 flex flex-wrap items-center gap-x-3 text-sm text-content/50", children: [_jsx("span", { children: video.playlist }), _jsx("span", { children: "\u2022" }), _jsx("span", { children: formatSize(video.size) }), _jsx("span", { children: "\u2022" }), _jsx("span", { children: formatRelative(video.lastModified) })] })] }), _jsx("button", { onClick: closePlayer, className: "mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Close player", children: _jsx(CloseIcon, {}) })] }))] }), isFull && (_jsxs("aside", { className: `shrink-0 overflow-y-auto border-t border-content/5 bg-base px-3 py-4 lg:border-l lg:border-t-0 ${theaterMode ? 'w-full lg:w-96' : 'w-full lg:w-96'}`, children: [_jsx("h2", { className: "mb-3 px-2 text-sm font-semibold text-content/60", children: "Up Next" }), _jsxs("div", { className: "flex flex-col gap-2", children: [upNext.slice(0, 50).map((v) => (_jsx(UpNextItem, { video: v, meta: videoMeta[v.id], onPlay: () => playVideo(v.id) }, v.id))), upNext.length === 0 && _jsx("p", { className: "px-2 py-8 text-center text-sm text-content/30", children: "No more videos" })] })] })), !isFull && (_jsxs("div", { className: "flex items-center gap-1 bg-surface px-2 py-1.5", children: [_jsx("button", { onClick: () => { const el = videoRef.current; el.paused ? el.play() : el.pause(); }, className: "flex h-8 w-8 items-center justify-center rounded-full text-content/80 transition hover:bg-content/10", "aria-label": playing ? 'Pause' : 'Play', children: playing ? _jsx(PauseIcon, {}) : _jsx(PlayIcon, {}) }), _jsx("span", { className: "mx-1 flex-1 truncate text-xs font-medium text-content/70", children: video.title }), _jsx("div", { className: "absolute inset-x-0 top-0 h-[2px] bg-content/10", children: _jsx("div", { className: "h-full bg-primary transition-all", style: { width: `${progress}%` } }) }), _jsx("button", { onClick: toggleMiniPlayer, className: "flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Expand", title: "Expand (i)", children: _jsx(ExpandIcon, {}) }), _jsx("button", { onClick: closePlayer, className: "flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Close", children: _jsx(CloseIcon, {}) })] }))] })] }));
+                                                                } }, className: "w-0 origin-left scale-x-0 opacity-0 transition-all group-hover/vol:w-20 group-hover/vol:scale-x-100 group-hover/vol:opacity-100" })] }), _jsxs("span", { className: "ml-1 text-xs tabular-nums text-content/70", children: [formatDuration(current), " / ", formatDuration(duration)] }), _jsx("div", { className: "flex-1" }), _jsx(PlayerGoLiveButton, {}), _jsx("button", { onClick: toggleAmbientMode, className: `flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${isAmbientMode ? 'text-primary' : 'text-content/70 hover:text-content'}`, "aria-label": "Ambient glow", "aria-pressed": isAmbientMode, title: isAmbientMode ? 'Ambient glow: on' : 'Ambient glow: off', children: _jsx(Sparkles, { className: "h-5 w-5" }) }), _jsx("button", { onClick: toggleMiniPlayer, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content", "aria-label": "Mini player (i)", title: "Mini player (i)", children: _jsx(MiniIcon, {}) }), _jsx("button", { onClick: togglePip, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content", "aria-label": "Picture in Picture", children: _jsx(PipIcon, {}) }), _jsx("button", { onClick: () => void popOut(), className: `flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${pipWindow ? 'text-primary' : 'text-content/70 hover:text-content'}`, "aria-label": pipWindow ? 'Close pop-out window' : 'Pop out (Document PiP)', title: pipSupported
+                                                            ? pipWindow
+                                                                ? 'Close the pop-out window'
+                                                                : 'Pop out the player UI into a floating window'
+                                                            : 'Pop out video (Document PiP needs Chrome or Edge 116+)', children: _jsx(ExternalLink, { className: "h-5 w-5" }) }), _jsx("button", { onClick: () => setTheaterMode(!theaterMode), className: `flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-content/10 ${theaterMode ? 'text-content' : 'text-content/70 hover:text-content'}`, "aria-label": "Theater mode", children: _jsx(TheaterIcon, {}) }), _jsx("button", { onClick: toggleFullscreen, className: "flex h-9 w-9 items-center justify-center rounded-full text-content/70 transition hover:bg-content/10 hover:text-content", "aria-label": "Fullscreen", children: _jsx(FullscreenIcon, {}) })] })] }))] }), isFull && (_jsxs("div", { className: "flex items-start gap-3 px-4 py-4 lg:px-6", children: [_jsxs("div", { className: "flex-1 min-w-0", children: [_jsx("h1", { className: "text-lg font-semibold leading-snug text-content lg:text-xl", children: video.title }), _jsxs("div", { className: "mt-1 flex flex-wrap items-center gap-x-3 text-sm text-content/50", children: [_jsx("span", { children: video.playlist }), _jsx("span", { children: "\u2022" }), _jsx("span", { children: formatSize(video.size) }), _jsx("span", { children: "\u2022" }), _jsx("span", { children: formatRelative(video.lastModified) })] })] }), _jsx("button", { onClick: closePlayer, className: "mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Close player", children: _jsx(CloseIcon, {}) })] }))] }), isFull && (_jsxs("aside", { className: `shrink-0 overflow-y-auto border-t border-content/5 bg-base px-3 py-4 lg:border-l lg:border-t-0 ${theaterMode ? 'w-full lg:w-96' : 'w-full lg:w-96'}`, children: [_jsx("h2", { className: "mb-3 px-2 text-sm font-semibold text-content/60", children: "Up Next" }), _jsxs("div", { className: "flex flex-col gap-2", children: [upNext.slice(0, 50).map((v) => (_jsx(UpNextItem, { video: v, meta: videoMeta[v.id], onPlay: () => playVideo(v.id) }, v.id))), upNext.length === 0 && _jsx("p", { className: "px-2 py-8 text-center text-sm text-content/30", children: "No more videos" })] })] })), !isFull && (_jsxs("div", { className: "flex items-center gap-1 bg-surface px-2 py-1.5", children: [_jsx("button", { onClick: () => { const el = videoRef.current; el.paused ? el.play() : el.pause(); }, className: "flex h-8 w-8 items-center justify-center rounded-full text-content/80 transition hover:bg-content/10", "aria-label": playing ? 'Pause' : 'Play', children: playing ? _jsx(PauseIcon, {}) : _jsx(PlayIcon, {}) }), _jsx("span", { className: "mx-1 flex-1 truncate text-xs font-medium text-content/70", children: video.title }), _jsx("div", { className: "absolute inset-x-0 top-0 h-[2px] bg-content/10", children: _jsx("div", { className: "h-full bg-primary transition-all", style: { width: `${progress}%` } }) }), _jsx("button", { onClick: toggleMiniPlayer, className: "flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Expand", title: "Expand (i)", children: _jsx(ExpandIcon, {}) }), _jsx("button", { onClick: closePlayer, className: "flex h-8 w-8 items-center justify-center rounded-full text-content/60 transition hover:bg-content/10 hover:text-content", "aria-label": "Close", children: _jsx(CloseIcon, {}) })] }))] })] }));
 }
 /* ─── Countdown Overlay ─── */
 function CountdownOverlay({ seconds, total, next, thumbnail, onPlayNow, onCancel, }) {

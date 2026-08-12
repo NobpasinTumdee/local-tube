@@ -13,12 +13,20 @@ import {
   ListMusic,
   Plus,
   Trash2,
+  Lock,
+  LockOpen,
+  ShieldCheck,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { useVaultStore } from '../store/useVaultStore';
 import type { HomeFilter, VirtualPlaylist } from '../store/useStore';
 import type { FolderNode } from '../utils/directoryScanner';
 
-export default function Sidebar() {
+interface SidebarProps {
+  onOpenVault: () => void;
+}
+
+export default function Sidebar({ onOpenVault }: SidebarProps) {
   const currentFolderPath = useStore((s) => s.currentFolderPath);
   const setCurrentFolder = useStore((s) => s.setCurrentFolder);
   const homeFilter = useStore((s) => s.homeFilter);
@@ -106,6 +114,13 @@ export default function Sidebar() {
           active={collection.type === 'favorites'}
           onClick={() => setCollection({ type: 'favorites' })}
         />
+
+        {/*
+          Private Vault. Locked, this is a single button that opens the PIN
+          pad — the item count is deliberately not shown, because "Vault (7)"
+          tells a bystander there is something worth looking for.
+        */}
+        <VaultNavItem onOpenVault={onOpenVault} />
 
         <div className="mt-1 flex items-center justify-between pr-1">
           <SectionLabel icon={<ListMusic className="h-3 w-3" />}>Playlists</SectionLabel>
@@ -220,6 +235,58 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+  );
+}
+
+/* ─── Private Vault entry ─── */
+function VaultNavItem({ onOpenVault }: { onOpenVault: () => void }) {
+  const hasVault = useVaultStore((s) => s.hasVault);
+  const isUnlocked = useVaultStore((s) => s.isVaultUnlocked);
+  const count = useVaultStore((s) => s.mediaIds.length);
+  const lock = useVaultStore((s) => s.lock);
+  const collection = useStore((s) => s.collection);
+  const setCollection = useStore((s) => s.setCollection);
+
+  const active = collection.type === 'vault';
+
+  /* Locked (or not yet created) → one button that opens the pad. */
+  if (!isUnlocked) {
+    return (
+      <NavItem
+        icon={<Lock className="h-[18px] w-[18px]" />}
+        label={hasVault ? 'Private Vault' : 'Set up Vault'}
+        active={false}
+        onClick={onOpenVault}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`group relative mb-0.5 flex w-full items-center rounded-xl text-sm transition-all duration-200 ${
+        active ? 'bg-primary/[0.12] font-semibold text-content' : 'font-medium text-content/65 hover:bg-content/[0.05] hover:text-content'
+      }`}
+    >
+      {active && <ActiveBar />}
+      <button
+        onClick={() => setCollection({ type: 'vault' })}
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 pr-1"
+      >
+        <LockOpen className={`h-[18px] w-[18px] shrink-0 ${active ? 'text-primary' : 'text-emerald-400'}`} />
+        <span className="min-w-0 flex-1 truncate text-left">Private Vault</span>
+        <span className={`rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-primary/20 text-primary' : 'text-content/30'}`}>
+          {count}
+        </span>
+      </button>
+      <button
+        onClick={() => lock()}
+        className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content/40 transition hover:bg-content/10 hover:text-content"
+        aria-label="Lock the vault now"
+        title="Lock now"
+      >
+        <ShieldCheck className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 

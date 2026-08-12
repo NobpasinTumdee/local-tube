@@ -85,7 +85,10 @@ export interface VirtualPlaylist {
 export type CollectionFilter =
   | { type: 'all' }
   | { type: 'favorites' }
-  | { type: 'playlist'; playlistId: string };
+  | { type: 'playlist'; playlistId: string }
+  /* Membership lives in useVaultStore (encrypted at rest), not here — this
+     is only the view selector. Selecting it while locked shows nothing. */
+  | { type: 'vault' };
 
 /** Restorable user data (see utils/backupUtils for export/import). */
 export interface ImportedUserData {

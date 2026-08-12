@@ -1,8 +1,9 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useMemo } from 'react';
-import { Home, Film, Image as ImageIcon, Library, Folder, FolderOpen, ChevronRight, Clock, PlayCircle, Heart, ListMusic, Plus, Trash2, } from 'lucide-react';
+import { Home, Film, Image as ImageIcon, Library, Folder, FolderOpen, ChevronRight, Clock, PlayCircle, Heart, ListMusic, Plus, Trash2, Lock, LockOpen, ShieldCheck, } from 'lucide-react';
 import { useStore } from '../store/useStore';
-export default function Sidebar() {
+import { useVaultStore } from '../store/useVaultStore';
+export default function Sidebar({ onOpenVault }) {
     const currentFolderPath = useStore((s) => s.currentFolderPath);
     const setCurrentFolder = useStore((s) => s.setCurrentFolder);
     const homeFilter = useStore((s) => s.homeFilter);
@@ -37,7 +38,7 @@ export default function Sidebar() {
         .map((id) => videos.find((v) => v.id === id))
         .filter((v) => !!v)
         .slice(0, 5), [recentVideoIds, videos]);
-    return (_jsxs("aside", { className: "sticky top-14 flex h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col overflow-y-auto border-r border-content/[0.04] bg-base/80 backdrop-blur-2xl scrollbar-hidden", children: [_jsx("div", { className: "pointer-events-none absolute inset-0 bg-gradient-to-b from-content/[0.02] via-transparent to-transparent" }), _jsxs("div", { className: "relative flex flex-1 flex-col px-3 py-4", children: [_jsx(SectionLabel, { icon: _jsx(Library, { className: "h-3 w-3" }), children: "Library" }), _jsx(NavItem, { icon: _jsx(Home, { className: "h-[18px] w-[18px]" }), label: "All Media", count: directoryTree?.mediaCount ?? 0, active: atRoot && homeFilter === 'all', onClick: () => { setCurrentFolder(''); setHomeFilter('all'); } }), _jsx(FilterItem, { icon: _jsx(Film, { className: "h-[18px] w-[18px]" }), label: "Videos", value: "videos", current: homeFilter, onClick: setHomeFilter, count: videos.filter((v) => v.mediaType === 'video').length }), _jsx(FilterItem, { icon: _jsx(ImageIcon, { className: "h-[18px] w-[18px]" }), label: "Images", value: "images", current: homeFilter, onClick: setHomeFilter, count: videos.filter((v) => v.mediaType === 'image').length }), _jsx(Divider, {}), _jsx(NavItem, { icon: _jsx(Heart, { className: `h-[18px] w-[18px] ${collection.type === 'favorites' ? 'fill-current' : ''}` }), label: "Favorites", count: favorites.length, active: collection.type === 'favorites', onClick: () => setCollection({ type: 'favorites' }) }), _jsxs("div", { className: "mt-1 flex items-center justify-between pr-1", children: [_jsx(SectionLabel, { icon: _jsx(ListMusic, { className: "h-3 w-3" }), children: "Playlists" }), _jsx("button", { onClick: () => setNewOpen((o) => !o), className: "flex h-6 w-6 items-center justify-center rounded-md text-content/40 transition hover:bg-content/10 hover:text-content", "aria-label": "New playlist", title: "New playlist", children: _jsx(Plus, { className: "h-3.5 w-3.5" }) })] }), newOpen && (_jsxs("div", { className: "mb-1 flex items-center gap-1 px-1", children: [_jsx("input", { autoFocus: true, value: newName, onChange: (e) => setNewName(e.target.value), onKeyDown: (e) => {
+    return (_jsxs("aside", { className: "sticky top-14 flex h-[calc(100vh-3.5rem)] w-64 shrink-0 flex-col overflow-y-auto border-r border-content/[0.04] bg-base/80 backdrop-blur-2xl scrollbar-hidden", children: [_jsx("div", { className: "pointer-events-none absolute inset-0 bg-gradient-to-b from-content/[0.02] via-transparent to-transparent" }), _jsxs("div", { className: "relative flex flex-1 flex-col px-3 py-4", children: [_jsx(SectionLabel, { icon: _jsx(Library, { className: "h-3 w-3" }), children: "Library" }), _jsx(NavItem, { icon: _jsx(Home, { className: "h-[18px] w-[18px]" }), label: "All Media", count: directoryTree?.mediaCount ?? 0, active: atRoot && homeFilter === 'all', onClick: () => { setCurrentFolder(''); setHomeFilter('all'); } }), _jsx(FilterItem, { icon: _jsx(Film, { className: "h-[18px] w-[18px]" }), label: "Videos", value: "videos", current: homeFilter, onClick: setHomeFilter, count: videos.filter((v) => v.mediaType === 'video').length }), _jsx(FilterItem, { icon: _jsx(ImageIcon, { className: "h-[18px] w-[18px]" }), label: "Images", value: "images", current: homeFilter, onClick: setHomeFilter, count: videos.filter((v) => v.mediaType === 'image').length }), _jsx(Divider, {}), _jsx(NavItem, { icon: _jsx(Heart, { className: `h-[18px] w-[18px] ${collection.type === 'favorites' ? 'fill-current' : ''}` }), label: "Favorites", count: favorites.length, active: collection.type === 'favorites', onClick: () => setCollection({ type: 'favorites' }) }), _jsx(VaultNavItem, { onOpenVault: onOpenVault }), _jsxs("div", { className: "mt-1 flex items-center justify-between pr-1", children: [_jsx(SectionLabel, { icon: _jsx(ListMusic, { className: "h-3 w-3" }), children: "Playlists" }), _jsx("button", { onClick: () => setNewOpen((o) => !o), className: "flex h-6 w-6 items-center justify-center rounded-md text-content/40 transition hover:bg-content/10 hover:text-content", "aria-label": "New playlist", title: "New playlist", children: _jsx(Plus, { className: "h-3.5 w-3.5" }) })] }), newOpen && (_jsxs("div", { className: "mb-1 flex items-center gap-1 px-1", children: [_jsx("input", { autoFocus: true, value: newName, onChange: (e) => setNewName(e.target.value), onKeyDown: (e) => {
                                     if (e.key === 'Enter')
                                         submitNewPlaylist();
                                     if (e.key === 'Escape') {
@@ -51,6 +52,21 @@ export default function Sidebar() {
                                             ? 'bg-content/[0.07] text-content'
                                             : 'text-content/60 hover:bg-content/[0.04] hover:text-content/95'}`, children: [active && _jsx(ActiveBar, {}), _jsx("div", { className: "relative h-8 w-12 shrink-0 overflow-hidden rounded bg-content/5", children: thumb ? (_jsx("img", { src: thumb, alt: "", className: "h-full w-full object-cover" })) : (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: _jsx(PlayCircle, { className: "h-4 w-4 text-content/20" }) })) }), _jsx("span", { className: "min-w-0 flex-1 truncate text-[12px]", children: v.title })] }, v.id));
                                 }) })] })), _jsx("div", { className: "flex-1" }), _jsx("div", { className: "mt-4 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-content/20", children: "Local Media Hub" })] })] }));
+}
+/* ─── Private Vault entry ─── */
+function VaultNavItem({ onOpenVault }) {
+    const hasVault = useVaultStore((s) => s.hasVault);
+    const isUnlocked = useVaultStore((s) => s.isVaultUnlocked);
+    const count = useVaultStore((s) => s.mediaIds.length);
+    const lock = useVaultStore((s) => s.lock);
+    const collection = useStore((s) => s.collection);
+    const setCollection = useStore((s) => s.setCollection);
+    const active = collection.type === 'vault';
+    /* Locked (or not yet created) → one button that opens the pad. */
+    if (!isUnlocked) {
+        return (_jsx(NavItem, { icon: _jsx(Lock, { className: "h-[18px] w-[18px]" }), label: hasVault ? 'Private Vault' : 'Set up Vault', active: false, onClick: onOpenVault }));
+    }
+    return (_jsxs("div", { className: `group relative mb-0.5 flex w-full items-center rounded-xl text-sm transition-all duration-200 ${active ? 'bg-primary/[0.12] font-semibold text-content' : 'font-medium text-content/65 hover:bg-content/[0.05] hover:text-content'}`, children: [active && _jsx(ActiveBar, {}), _jsxs("button", { onClick: () => setCollection({ type: 'vault' }), className: "flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 pr-1", children: [_jsx(LockOpen, { className: `h-[18px] w-[18px] shrink-0 ${active ? 'text-primary' : 'text-emerald-400'}` }), _jsx("span", { className: "min-w-0 flex-1 truncate text-left", children: "Private Vault" }), _jsx("span", { className: `rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-primary/20 text-primary' : 'text-content/30'}`, children: count })] }), _jsx("button", { onClick: () => lock(), className: "mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content/40 transition hover:bg-content/10 hover:text-content", "aria-label": "Lock the vault now", title: "Lock now", children: _jsx(ShieldCheck, { className: "h-3.5 w-3.5" }) })] }));
 }
 /* ─── Section label ─── */
 function SectionLabel({ children, icon }) {

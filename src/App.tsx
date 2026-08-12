@@ -8,6 +8,13 @@ import {
 } from './utils/directoryScanner';
 import type { MediaEntry } from './utils/directoryScanner';
 import LibraryManager from './components/LibraryManager';
+import StealthOverlay from './components/StealthOverlay';
+import PiPStage from './components/PiPStage';
+import VaultModal from './components/VaultModal';
+import { useStealthMode } from './hooks/useStealthMode';
+import { useVaultHiddenIds, useVaultSession } from './hooks/useVaultGuard';
+import { useVaultStore } from './store/useVaultStore';
+import { usePiPStore } from './hooks/useDocumentPiP';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -44,6 +51,15 @@ export default function App() {
   const setScanning = useStore((s) => s.setScanning);
 
   const [managerOpen, setManagerOpen] = useState(false);
+  const [vaultOpen, setVaultOpen] = useState(false);
+
+  /* ── privacy & vault (mounted once, at the root) ────────── */
+  useStealthMode();
+  useVaultSession();
+  const vaultHiddenIds = useVaultHiddenIds();
+  const vaultMediaIds = useVaultStore((s) => s.mediaIds);
+  const isVaultUnlocked = useVaultStore((s) => s.isVaultUnlocked);
+  const pipWindow = usePiPStore((s) => s.pipWindow);
 
   useEffect(() => {
     void hydrateWorkspace();
@@ -163,16 +179,31 @@ export default function App() {
       return true;
     };
 
+    /*
+     * The vault hides its members from every OTHER view while locked. It can
+     * do that without knowing which files they are: useVaultHiddenIds
+     * resolves the stored salted digests against the current library, so
+     * this stays a plain Set lookup. Unlocked, the set is empty and the
+     * items reappear normally.
+     */
+    const isHidden = (v: MediaEntry) => vaultHiddenIds.has(v.id);
+
     /* Virtual collections resolve mediaIds → entries, preserving their order. */
     if (collection.type !== 'all') {
       const ids =
         collection.type === 'favorites'
           ? favorites
-          : virtualPlaylists.find((p) => p.id === collection.playlistId)?.mediaIds ?? [];
+          : collection.type === 'vault'
+            ? vaultMediaIds
+            : virtualPlaylists.find((p) => p.id === collection.playlistId)?.mediaIds ?? [];
       const byId = new Map(videos.map((v) => [v.id, v] as const));
       return ids
         .map((id) => byId.get(id))
-        .filter((v): v is MediaEntry => !!v && matchesSearchAndType(v));
+        .filter((v): v is MediaEntry => {
+          if (!v || !matchesSearchAndType(v)) return false;
+          /* The vault's own view is the one place hidden items belong. */
+          return collection.type === 'vault' || !isHidden(v);
+        });
     }
 
     const idSet =
@@ -181,6 +212,7 @@ export default function App() {
         : null;
 
     return videos.filter((v) => {
+      if (isHidden(v)) return false;
       if (q) {
         return matchesSearchAndType(v); // global search
       }
@@ -191,7 +223,16 @@ export default function App() {
       }
       return matchesSearchAndType(v);
     });
-  }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists, mediaTags, activeFilterTags]);
+  }, [videos, currentFolderPath, searchQuery, homeFilter, viewMode, collection, favorites, virtualPlaylists, mediaTags, activeFilterTags, vaultHiddenIds, vaultMediaIds]);
+
+  /* A locked vault must not leave its items selected in the grid or queued
+     for autoplay — that would leak them right past the filter above. */
+  useEffect(() => {
+    if (isVaultUnlocked) return;
+    const s = useStore.getState();
+    if (s.currentVideoId && vaultHiddenIds.has(s.currentVideoId)) s.closePlayer();
+    if (s.collection.type === 'vault') s.setCollection({ type: 'all' });
+  }, [isVaultUnlocked, vaultHiddenIds]);
 
   /*
    * Keep the player's playback queue aligned with what the user is browsing,
@@ -221,6 +262,10 @@ export default function App() {
       <>
         <Welcome onSelectFolder={pickFolder} onOpenPresets={() => setManagerOpen(true)} />
         <LibraryManager open={managerOpen} onClose={() => setManagerOpen(false)} />
+        {/* The panic screen has to cover the landing page too — it is still
+            the user's screen, and the P2P viewers below can be showing a
+            peer's broadcast on this branch. */}
+        <StealthOverlay />
         {/* An invited guest usually arrives with no folder at all, so the
             invite prompt has to live on this branch too. */}
         <InviteJoinModal />
@@ -240,11 +285,19 @@ export default function App() {
 
       {showHome && (
         <div className="flex pt-14">
-          {sidebarOpen && <Sidebar />}
+          {sidebarOpen && <Sidebar onOpenVault={() => setVaultOpen(true)} />}
           <main className="flex-1 overflow-y-auto p-6">
-            {layoutMode && (
+            {/* While the grid is popped out, PiPStage owns it. Rendering both
+                would build two <video> elements per file — double decode,
+                double audio, slightly out of sync. */}
+            {layoutMode && !pipWindow && (
               <div className="mb-6">
                 <MediaViewer />
+              </div>
+            )}
+            {layoutMode && pipWindow && (
+              <div className="mb-6 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-content/10 bg-content/[0.02] py-10 text-sm text-content/40">
+                Playing in the pop-out window.
               </div>
             )}
             <div className="mb-6 flex flex-wrap items-center gap-3">
@@ -267,6 +320,15 @@ export default function App() {
       <InviteJoinModal />
       <WatchPartyLobby />
       <BroadcastView />
+
+      {/* Document PiP host — mounted at the root so the popout survives
+          navigation between the library and the player. */}
+      <PiPStage />
+
+      <VaultModal open={vaultOpen} onClose={() => setVaultOpen(false)} />
+
+      {/* Last child, so nothing can paint over the privacy screen. */}
+      <StealthOverlay />
     </div>
   );
 }
