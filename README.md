@@ -10,6 +10,8 @@ Point it at a folder on your disk and get a premium, Netflix-style library. Noth
 ![Network](https://img.shields.io/badge/Network-Zero%20by%20Default-16a34a)
 ![P2P](https://img.shields.io/badge/P2P-Opt--In%20%C2%B7%20E2E%20Encrypted-8b5cf6)
 ![Filesystem](https://img.shields.io/badge/Disk%20Access-Read--Only-2563eb)
+![Vault](https://img.shields.io/badge/Vault-AES--256--GCM-a855f7)
+![Workspace](https://img.shields.io/badge/Workspace-Multi--Folder-f59e0b)
 ![React](https://img.shields.io/badge/React-18-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6)
 ![Vite](https://img.shields.io/badge/Vite-5-646cff)
@@ -20,9 +22,16 @@ Point it at a folder on your disk and get a premium, Netflix-style library. Noth
 
 ## 📖 Project Overview
 
-**LocalTube** is a browser-based media library and player for the videos and images already sitting on your computer. Using the browser's **File System Access API**, you grant read access to a folder and LocalTube renders it as a polished streaming app — thumbnails, hover previews, playlists, tags, themes, multi-video layouts, and more.
+**LocalTube** is a browser-based media library and player for the videos and images already sitting on your computer. Using the browser's **File System Access API**, you grant read access to **one or more folders** and LocalTube merges them into a single polished streaming app — thumbnails, hover previews, playlists, tags, themes, multi-video layouts, and more.
 
-There is **no server, no database, and no account**. Every byte stays inside your browser tab. When you close it, the media handles are gone; only your lightweight preferences (favorites, playlists, tags, theme) persist in `localStorage`.
+There is **no server, no database, and no account**. Every byte stays inside your browser tab. What persists is deliberately small and entirely local:
+
+| Where | What | Why there |
+|---|---|---|
+| `localStorage` | Favorites, playlists, tags, theme, watch progress, display prefs, stealth shortcut | Small, plain JSON |
+| **IndexedDB** | Workspace folder handles + presets, the encrypted Vault, the scrub-preview frame cache | A `FileSystemDirectoryHandle` **cannot** be JSON-serialized — `JSON.stringify` yields `{}` and the reference is lost. IndexedDB's structured-clone is the only mechanism that preserves it across a reload |
+
+Nothing in either store is readable by a server, because there isn't one.
 
 The one exception is the **opt-in P2P Watch Party** — a browser-to-browser, password-protected room for pushing individual files and live-streaming what you're watching. It is completely inert until you switch it on, and it still never involves a server that can see your data. [Jump to the details ↓](#-p2p-watch-party-opt-in)
 
@@ -51,6 +60,11 @@ All file access is confined to the single directory handle *you* explicitly auth
 
 | | Feature | Description |
 |---|---|---|
+| 🗂️ | **Virtual Multi-Path Workspace** | Mount **several folders at once** into one merged library, and save combinations as named **Presets** ("Anime + Movies"). Nothing is moved or copied — a workspace is just a list of directory handles. |
+| 🕶️ | **Stealth Mode** | A customizable **panic shortcut** that instantly blanks the screen, mutes every player, and swaps the tab title. Blackout or fake-terminal cover. |
+| 🔐 | **Private Vault** | A PIN-locked virtual playlist. Its membership is **encrypted at rest** (PBKDF2 → AES-256-GCM), and while locked its items disappear from the entire library. |
+| 🪟 | **Document Picture-in-Picture** | Pop the whole multi-media grid — tiles, controls and all — into a floating always-on-top window, not just a bare video track. |
+| 🎞️ | **Hover Scrub Previews** | YouTube-style thumbnail filmstrip on the progress bar, extracted locally on an offscreen canvas and cached in IndexedDB. |
 | 🎞️ | **Multi-Media Support** | Videos **and** images live together in one unified, uniform grid. |
 | 🧩 | **Multi-Media Layout Mode** | Watch/view several items at once in custom grid templates (Single, 1+2, 2×2, 3×3, **Auto**, and a fully **Custom** N×M grid) — freely mixing videos and images, with per-tile and master controls + fullscreen. |
 | 📐 | **Customizable Uniform Grid** | Choose a card **aspect ratio** (16:9 · 9:16 · 1:1) and **column count** (Auto · 2–6). All cards stay perfectly uniform; media fills cleanly via `object-cover`. |
@@ -61,6 +75,111 @@ All file access is confined to the single directory handle *you* explicitly auth
 | ⏯️ | **Continue Watching** | Playback position is remembered per video and resumes automatically. |
 | 🤝 | **P2P Watch Party** *(opt-in)* | Password-protected browser-to-browser rooms: **push** individual files to verified peers and **live-broadcast** the video you're watching. No server ever sees your data. |
 | 🛑 | **Global Kill Switch** | One prominent button destroys every data channel, media stream and signaling socket, and releases received files from memory. |
+
+---
+
+## 🗂️ Virtual Multi-Path Workspace
+
+Your library no longer has to be one folder. Mount as many as you like — they merge into a single browsable tree — and save the combination as a **Preset** you can reopen in one click.
+
+Open it from the **Workspace** button in the header, or from **My Presets** on the welcome screen.
+
+### Virtual, never physical
+A workspace is a list of directory handles and nothing else. Adding a folder does not copy, move, index or touch a single file; removing one just forgets the handle. Your disk is identical before and after.
+
+### Why folder names prefix every path
+`MediaEntry.id` is the key for favorites, tags and resume positions. Merge two folders that each contain `movie.mp4` and, without a namespace, those two different files become **one item** as far as the store is concerned — silently sharing a watch position and a favorite state.
+
+So every path is prefixed with its mounted folder's name (`Anime/Season 1/ep01.mp4`), under one synthetic workspace root:
+
+```
+''  (workspace root — not a real directory)
+├── Anime/          ← mounted folder
+│   └── Season 1/
+└── Movies/         ← mounted folder
+```
+
+Two properties fall out of this:
+
+- The synthetic root is shaped exactly like a real folder node, so breadcrumbs, the sidebar tree and flat/nested browsing all work unmodified.
+- **An id depends only on its own mount**, never on how many other folders happen to be open. Adding a second folder cannot re-key the first one's favorites.
+
+Two folders that share a name (`Downloads` on two drives) are disambiguated as `Downloads` and `Downloads (2)`.
+
+> **Upgrading from a single-folder library?** Ids gained that prefix, which would have orphaned every existing favorite, tag and resume point. A one-time migration re-points any saved id that has exactly one unambiguous match under a mount. Ambiguous ones are deliberately left alone — losing a favorite is recoverable, silently attaching it to the *wrong* file is not.
+
+### Permissions after a restart
+Browsers drop folder access when they restart, and re-granting legally requires a click. On cold start LocalTube only *queries* permission (prompting without a user gesture is suppressed by the browser), so folders whose grant lapsed are held aside and the Workspace panel offers a single **Grant access** button. Everything in the active list is guaranteed readable, so a scan can never hit `NotAllowedError`. A folder that has been moved or unplugged is reported by name instead of silently emptying your library.
+
+---
+
+## 🕶️ Privacy Suite
+
+Two independent features for two different threats: someone **looking at your screen**, and someone **using your computer**.
+
+### Stealth Mode — the panic key
+
+Press your shortcut (default <kbd>Ctrl</kbd>+<kbd>Esc</kbd>, fully rebindable in **Settings**) and the screen is instantly covered, every player muted, and the tab title changed. Press it again to come back exactly where you were — playback keeps running underneath.
+
+Three things it does differently from an ordinary shortcut, because a panic key has different requirements:
+
+| Choice | Why |
+|---|---|
+| **Capture phase + `stopImmediatePropagation`** | `stopPropagation` stops the event reaching other *nodes*, but not other listeners on the same one — and the player also listens on `window` for Escape. Without this, <kbd>Ctrl</kbd>+<kbd>Esc</kbd> would hide the screen **and close the player underneath it**. |
+| **No input guard** | Every other shortcut bails when you're typing in a field. This one must not: mid-search is exactly when you need it. |
+| **Restore, don't unmute** | The previous `muted` value is remembered per element, so leaving stealth can never turn audio **on** for something you had deliberately muted. |
+
+A `MutationObserver` also mutes any `<video>` that mounts *while* the screen is hidden — autoplay-next would otherwise start a fresh, unmuted element behind a black screen.
+
+Covers: **Blackout** (plain black) or **Fake terminal** (a self-typing build log with no app branding). Optional **hide on window blur** covers alt-tabbing and screen-share pickers; off by default because it also fires every time you click into another app.
+
+> The way back out is intentionally quiet — a large "PRESS CTRL+ESC TO RETURN" banner would defeat the point in front of the person you're hiding from. The hint is dim and only appears after you move the mouse.
+
+### Private Vault — the PIN lock
+
+A virtual playlist whose **membership list is encrypted at rest**. Set a PIN (6+ digits, or a full passphrase), then move items in from any card's menu. It auto-locks after **5 minutes of inactivity**, or instantly from the sidebar.
+
+- **PBKDF2-SHA256 (600,000 iterations) → AES-256-GCM**, all via `window.crypto.subtle`. No crypto library, no network.
+- **The GCM auth tag *is* the PIN check.** A wrong key fails the tag and decryption throws, so there is no separate password hash stored for an attacker to attack more cheaply than the KDF itself.
+- The derived key is **non-extractable** and lives in a module-level variable — *not* in the Zustand store, where it would be enumerable, visible to devtools, and swept into any state dump.
+- A fresh IV per save: reusing one with the same GCM key leaks the XOR of the plaintexts.
+- Locking purges the decrypted ids from React state and drops the key reference.
+
+**Items stay hidden while locked.** A vault whose files still show up in *All Media* wouldn't be private in any way a user would recognise — but hiding them needs the id list, which is precisely what's encrypted. LocalTube stores a **salted SHA-256 of each vaulted id** in the clear; locked, it hashes the ids it can see and drops any whose digest is in the list. It filters correctly **without ever learning the set**.
+
+> #### ⚠️ What the Vault actually protects against
+> Be clear-eyed: a 6-digit PIN is 10⁶ candidates, and PBKDF2-SHA256 is exactly the kind of function a GPU chews through. **Assume anyone who images your disk recovers the PIN.** The blind digests leak correspondingly — someone with the database *and* a copy of the same library can hash their own filenames to learn which are vaulted.
+>
+> This defends against the realistic threat: **someone who picks up your unlocked laptop and clicks around.** It is not a defence against forensic analysis. The iteration count and auth tag make the easy attack expensive, not the hard one impossible. If you need the latter, the PIN pad accepts an arbitrary-length passphrase.
+>
+> **There is no recovery.** Forget the PIN and the contents list is gone (your video files, of course, are untouched — they were never moved).
+
+> 🔐 **Secure context required.** `crypto.subtle` only exists on `https://` or `localhost`. Over plain `http://` the Vault refuses to open and says why, rather than falling back to something weaker.
+
+---
+
+## 🪟 Document Picture-in-Picture
+
+Pop the **entire grid UI** — tiles, master controls and all — into a floating always-on-top window, rather than the bare video track `<video>.requestPictureInPicture()` gives you. Use the **⧉ Pop out** button in the player controls; where the API is unsupported it falls back to native PiP automatically.
+
+The popout shares this page's JS realm, so every Zustand store is literally the same object and state sharing needs no bridge. What it does *not* share is the document — which means two things have to be carried across by hand, and both are load-bearing:
+
+- **Stylesheets.** Copied rule-by-rule, with a `<link>` fallback for any sheet whose `cssRules` throws (Vite inlines CSS in dev, links it in production). Without them Tailwind classes resolve to nothing.
+- **The `<body>` theme class.** LocalTube's entire palette comes from CSS variables on `body.theme-*`. Copy the sheets but not the class and every colour token falls back to the default — a light-theme user gets a dark popout. It's copied and kept in sync.
+
+Only **one** grid may be live at a time: while popped out, the main window renders a placeholder instead. Two would build their own `<video>` elements for the same files — double decode, double memory, and two soundtracks a few frames out of sync.
+
+---
+
+## 🎞️ Hover Scrub Previews
+
+Hover the progress bar to see a thumbnail of that moment, YouTube-style.
+
+Frames are extracted **locally** by seeking an offscreen `<video>` and painting to a `<canvas>` — the source is a Blob URL from your own file handle, decoded by the browser, in your tab. No upload, no FFmpeg, and the original file is only ever opened for reading.
+
+- 12 frames max at 160px wide (~3–5 KB each), sampled at each segment's **midpoint** — the first frame of a video is usually black or a fade-in, and a filmstrip starting with a black square looks broken.
+- Cached in IndexedDB keyed by media id and stamped with the file's `size:mtime`, so an edited file re-extracts instead of showing stale frames. LRU-capped at 40 strips.
+- Extraction is deferred behind a warmup + idle callback and serialised one-at-a-time, so it never competes with the video you're actually watching. It aborts the moment you switch videos, and every media event is timeout-bounded — a throttled tab can suspend decoding indefinitely, and an untimed wait would wedge the queue for the rest of the session.
 
 ---
 
@@ -197,6 +316,17 @@ LocalTube/
 │   │   │                       #    of truth: library, navigation, player, layout,
 │   │   │                       #    themes, favorites/playlists/tags, watch progress,
 │   │   │                       #    display prefs. Persists ONLY prefs to localStorage.
+│   │   │                       #    Also holds the legacy media-id migration.
+│   │   ├── useLibraryStore.ts  # 🗂️ Workspace: mounted folder handles + named presets,
+│   │   │                       #    persisted to IndexedDB via idb-keyval (handles are
+│   │   │                       #    NOT JSON-serializable). Invariant: everything in
+│   │   │                       #    activeHandles is permission-verified and readable.
+│   │   ├── useSettingsStore.ts # 🕶️ Privacy config: stealth shortcut, cover style,
+│   │   │                       #    hide-on-blur. isStealthActive is NEVER persisted —
+│   │   │                       #    a panic screen surviving a reload would lock you out.
+│   │   ├── useVaultStore.ts    # 🔐 Vault: encrypted membership in IndexedDB, 5-min
+│   │   │                       #    idle auto-lock. The CryptoKey lives in a module
+│   │   │                       #    variable, deliberately OUTSIDE the store.
 │   │   ├── useChatStore.ts     # 💬 Chat transcript — 100% VOLATILE. No persist(), no
 │   │   │                       #    storage API, ring-buffered at 500 messages, and the
 │   │   │                       #    single owner of every attachment Blob URL's lifetime.
@@ -217,9 +347,33 @@ LocalTube/
 │   │   └── mediaElementRegistry.ts # Publishes the live <video> so Broadcast can
 │   │                           #    captureStream() it; verifies tracks actually exist.
 │   │
+│   ├── hooks/
+│   │   ├── useStealthMode.ts   # 🕶️ Global capture-phase panic listener + the audio
+│   │   │                        #    kill (remembers prior muted state; MutationObserver
+│   │   │                        #    silences videos mounted while hidden).
+│   │   ├── useDocumentPiP.ts   # 🪟 Document PiP: opens the window, clones stylesheets,
+│   │   │                        #    mirrors the body theme class, owns the pip store.
+│   │   ├── useVaultGuard.ts    # 🔐 Resolves blind digests → ids to hide, and feeds
+│   │   │                        #    the idle auto-lock timer from real user activity.
+│   │   └── useScrubFrames.ts   # 🎞️ Cache-first filmstrip loading, deferred behind an
+│   │                            #    idle callback and abortable on video change.
+│   │
 │   ├── utils/
-│   │   ├── directoryScanner.ts # 📁 Recursive File System Access walk → MediaEntry[]
-│   │   │                        #    + folder tree; classifies video/image; READ-ONLY.
+│   │   ├── directoryScanner.ts # 📁 Recursive File System Access walk over N roots →
+│   │   │                        #    merged MediaEntry[] + one synthetic folder tree.
+│   │   │                        #    Mount-prefixes every path; READ-ONLY. One
+│   │   │                        #    unreadable folder can't sink the whole scan.
+│   │   ├── permissionUtils.ts  # 🔑 queryPermission (silent, safe on load) vs
+│   │   │                        #    verifyPermission (prompts — must be first await
+│   │   │                        #    in a click handler or the gesture is consumed).
+│   │   ├── cryptoUtils.ts      # 🔐 PBKDF2(600k) → AES-256-GCM encrypt/decrypt +
+│   │   │                        #    salted membership digests. Documents its own
+│   │   │                        #    threat model. Keys are non-extractable.
+│   │   ├── shortcutUtils.ts    # ⌨️ Canonical key-combo capture, exact matching
+│   │   │                        #    (an extra modifier must NOT fire) and formatting.
+│   │   ├── frameExtractor.ts   # 🎞️ Scrub filmstrip: offscreen seek+canvas capture,
+│   │   │                        #    single-flight queue, timeout-bounded media events,
+│   │   │                        #    IndexedDB cache keyed by id + size:mtime, LRU-capped.
 │   │   ├── generateThumbnail.ts# 🖼️ Offscreen <video>+<canvas> frame extraction with
 │   │   │                        #    a concurrency-limited queue (returns data: URL).
 │   │   ├── layoutGrid.ts       # Grid template → inline CSS-grid styles + DnD MIME types
@@ -230,9 +384,17 @@ LocalTube/
 │   │   └── format.ts           # Duration / size / relative-time / resolution helpers
 │   │
 │   └── components/
-│       ├── Welcome.tsx         # First-run landing → triggers showDirectoryPicker()
-│       ├── Header.tsx          # Top bar: search, folder re-pick, layout/theme/settings
-│       ├── Sidebar.tsx         # Library nav, folder tree, Favorites, Playlists, Recent
+│       ├── Welcome.tsx         # Cinematic landing: bundled background video, canvas
+│       │                       #    dust particles, "Select Media Folder" + "My Presets"
+│       ├── LibraryManager.tsx  # 🗂️ Workspace panel: mounted folders, add/remove,
+│       │                       #    save/load/delete presets, re-grant permissions
+│       ├── StealthOverlay.tsx  # 🕶️ The z-9999 privacy screen (blackout / fake
+│       │                       #    terminal) + tab-title swap. Portalled to <body>.
+│       ├── VaultModal.tsx      # 🔐 PIN pad: setup, confirm, unlock, destroy
+│       ├── PiPStage.tsx        # 🪟 Portals the multi-grid into the Doc PiP window
+│       ├── Scrubber.tsx        # 🎞️ Progress bar + hover thumbnail tooltip
+│       ├── Header.tsx          # Top bar: search, Workspace button, layout/theme/settings
+│       ├── Sidebar.tsx         # Library nav, folder tree, Favorites, Vault, Playlists
 │       ├── Breadcrumb.tsx      # Folder path breadcrumb
 │       ├── FilterBar.tsx       # Media-type + dynamic tag filters (Framer Motion)
 │       ├── GridSettingsBar.tsx # Aspect-ratio + column-count selectors
@@ -245,7 +407,8 @@ LocalTube/
 │       ├── AmbientGlow.tsx     # Canvas-sampled cinema-glow effect (perf-guarded)
 │       ├── LayoutSelector.tsx  # Layout toggle + templates + custom grid builder
 │       ├── ThemeSwitcher.tsx   # Theme picker with live swatches
-│       ├── SettingsModal.tsx   # Data Management: backup export / restore
+│       ├── SettingsModal.tsx   # Stealth Mode config (shortcut recorder, cover style)
+│       │                       #    + Data Management: backup export / restore
 │       ├── WebRTCBar.tsx       # 🤝 P2P entry point: create/join room, peer list,
 │       │                       #    security log, chat toggle + KILL SWITCH
 │       ├── InviteJoinModal.tsx # 🎟️ Detects an invite in the hash, scrubs it, then
@@ -260,10 +423,12 @@ LocalTube/
 │       └── BroadcastView.tsx   # 📡 Host "Go live" controls, the in-player LIVE
 │                               #    button, and the fullscreen viewer
 │
+├── bg-red-ball.mp4             # Landing-page background — bundled, NOT a CDN fetch
 ├── tailwind.config.js          # Semantic color tokens mapped to CSS variables
 ├── vite.config.ts              # Vite + React plugin (dev server only)
-└── package.json                # 6 runtime deps: react, react-dom, zustand,
-                                #   framer-motion, lucide-react, peerjs (lazy-loaded)
+└── package.json                # 7 runtime deps: react, react-dom, zustand,
+                                #   framer-motion, lucide-react, idb-keyval,
+                                #   peerjs (lazy-loaded)
 ```
 
 ---
@@ -276,10 +441,13 @@ LocalTube has **no backend** — the browser itself is the runtime, storage, and
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ 1. AUTHORIZE   User clicks "Select Folder" → window.showDirectoryPicker()   │
 │                Browser sandbox grants a READ-ONLY FileSystemDirectoryHandle  │
+│                Handles are stored in IndexedDB, so the workspace survives a   │
+│                restart (re-granting permission needs one click on return)     │
 ├───────────────────────────────────────────────────────────────────────────┤
-│ 2. SCAN        directoryScanner.ts recursively walks the handle,            │
-│                classifying files by extension into a flat MediaEntry[]       │
-│                + a folder tree. Each entry keeps a read-only file handle.    │
+│ 2. SCAN        directoryScanner.ts walks EVERY mounted handle and merges     │
+│                them into one flat MediaEntry[] + one synthetic folder tree.   │
+│                Each path is prefixed with its mount name, so ids stay unique  │
+│                across folders. Each entry keeps a read-only file handle.      │
 ├───────────────────────────────────────────────────────────────────────────┤
 │ 3. LAZY LOAD   Each MediaCard registers an IntersectionObserver. Only when  │
 │                a card scrolls into view does it read its file:              │
@@ -293,7 +461,9 @@ LocalTube has **no backend** — the browser itself is the runtime, storage, and
 ├───────────────────────────────────────────────────────────────────────────┤
 │ 5. PERSIST     Zustand's persist middleware writes ONLY your preferences    │
 │                (favorites, playlists, tags, theme, progress, display) to     │
-│                localStorage. The heavy library + handles are never stored.   │
+│                localStorage. The heavy library is never stored.              │
+│                IndexedDB holds folder handles + presets, the encrypted        │
+│                Vault, and the scrub-frame cache — nothing else.              │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -301,6 +471,7 @@ LocalTube has **no backend** — the browser itself is the runtime, storage, and
 - **IntersectionObserver** keeps large libraries fast by deferring all file reads and thumbnail work until content is actually visible.
 - **`<canvas>` extraction** turns a video frame into a lightweight inline `data:` thumbnail without a server or FFmpeg.
 - **Zustand + persist** gives a single reactive store and durable-yet-minimal preferences, so the app "remembers you" without a database.
+- **IndexedDB (via `idb-keyval`)** is used only where `localStorage` physically cannot work: directory handles are opaque platform objects that structured-clone preserves and `JSON.stringify` destroys, and the Vault stores raw `Uint8Array` ciphertext.
 
 ### P2P flow (only runs after you opt in)
 
@@ -358,7 +529,22 @@ npm install
 ```bash
 npm run dev
 ```
-Then open the printed URL (default **http://localhost:5173**), click **Select Folder**, and choose any folder of videos/images.
+Then open the printed URL (default **http://localhost:5173**), click **Select Media Folder**, and choose any folder of videos/images.
+
+### Building a multi-folder workspace
+
+1. Open **Workspace** in the header (or **My Presets** on the welcome screen).
+2. **Add folder to workspace** — repeat for as many folders as you want. They merge into one library immediately.
+3. Type a name and press **Save** to store the combination as a preset.
+4. Next session, click the preset to reopen all of its folders at once. Browsers drop folder access on restart, so you'll get one permission prompt per folder — that click is required by the browser and can't be skipped.
+
+### Using the Vault
+
+1. **Set up Vault** in the sidebar → choose a PIN of 6+ digits (or a longer passphrase) and confirm it. Deriving the key takes a few hundred milliseconds by design.
+2. Add items from any card's **⋯ → Move to Private Vault**.
+3. While locked, those items are gone from the grid, from search, and from autoplay. Unlock from the sidebar to see them again; it re-locks after 5 minutes idle.
+
+> Read [what the Vault does and does not protect against](#-private-vault--the-pin-lock) before trusting it with anything that genuinely matters.
 
 ### Build for production
 ```bash
@@ -391,7 +577,8 @@ These are planned and **not currently in the codebase**:
 
 - 🔤 **Local Subtitle Support** — drag-and-drop `.srt` / `.vtt` files and auto-discover sidecar subtitle tracks.
 - ⌨️ Global keyboard-shortcut cheatsheet.
-- 🗃️ Optional IndexedDB backend for very large tag/playlist datasets.
+- 🗃️ Moving tags/playlists to IndexedDB for very large datasets. *(IndexedDB is already used for workspace handles, the Vault and the frame cache — this item is specifically about the tag/playlist store.)*
+- 🔐 Optional Argon2id KDF for the Vault, to blunt the GPU advantage a PIN currently gives an offline attacker.
 
 ---
 
@@ -405,6 +592,17 @@ These are planned and **not currently in the codebase**:
 | No XSS sinks | ✅ Verified | No `dangerouslySetInnerHTML` / `innerHTML` / `eval` |
 | Blob-URL hygiene | ✅ Hardened | Deterministic `revokeObjectURL`; received-file MIME from a local allowlist, never from the wire |
 | Virtual-only customizations | ✅ Verified | Favorites/playlists/tags are `localStorage` strings |
+| Multi-folder: still read-only | ✅ Verified | `showDirectoryPicker({ mode: 'read' })`; the scanner only ever calls `getFile()`. Adding/removing a folder mutates a handle list, never the disk |
+| Media ids unique across folders | ✅ Verified | Node harness: two mounts each containing `clip.mp4` keep distinct ids; a folder's ids are byte-identical whether or not other folders are mounted |
+| Stealth: cannot be swallowed | ✅ Verified | Capture phase + `stopImmediatePropagation`; confirmed the player's own Escape handler no longer fires, and the shortcut still works from a focused `<input>` |
+| Stealth: audio kill is reversible | ✅ Verified | Prior `muted` restored per element — a video the user had muted stays muted after exit; a video mounted *while* hidden is born muted |
+| Vault: no plaintext at rest | ✅ Verified | The stored IndexedDB record was inspected: filenames appear nowhere in ciphertext, salt, IV or digests |
+| Vault: wrong PIN rejected | ✅ Verified | GCM tag failure. Tampered ciphertext and substituted salt are rejected identically — the error deliberately can't distinguish wrong-PIN from corruption |
+| Vault: IV never reused | ✅ Verified | 8 encryptions of identical plaintext → 8 distinct IVs **and** 8 distinct ciphertexts |
+| Vault: hidden while locked | ✅ Verified | Vaulted items absent from the grid, from global search, and from the playback queue while locked; restored on unlock |
+| Vault: offline brute force | ⚠️ **Limited by design** | A 6-digit PIN is 10⁶ candidates against a GPU-friendly KDF. Protects against casual access to an unlocked machine, **not** against disk imaging — see [the threat model](#-private-vault--the-pin-lock) |
+| Doc PiP: no network | ✅ By construction | The popout shares this page's realm; stylesheets are cloned from already-loaded local sheets, never re-fetched |
+| Scrub previews: local only | ✅ Verified | Blob URL → offscreen `<video>` → `<canvas>`; frames cached in IndexedDB. No `fetch`, no upload |
 | P2P: no remote read | ✅ Verified | Protocol has no read/list/get message; service holds no library reference or file handle |
 | P2P: room auth | ✅ Verified | Mutual PBKDF2(250k)+HMAC proof, constant-time compare, 3-strike lockout, 15 s timeout; wrong password drops the connection (tested) |
 | P2P: session secrets | ✅ Verified | `useWebRTCStore` is **not** wrapped in `persist`; room id and passphrase die with the tab |
