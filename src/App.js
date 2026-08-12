@@ -208,7 +208,7 @@ export default function App() {
      * so the P2P viewers are mounted on this branch too.
      */
     if (activeHandles.length === 0 && pendingRestore.length === 0) {
-        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onSelectFolder: pickFolder }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
+        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onSelectFolder: pickFolder, onOpenPresets: () => setManagerOpen(true) }), _jsx(LibraryManager, { open: managerOpen, onClose: () => setManagerOpen(false) }), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
     }
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';

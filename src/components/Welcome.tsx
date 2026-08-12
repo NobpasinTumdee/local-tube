@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { motion, useReducedMotion, type Variants } from 'framer-motion';
-import { ArrowRight, FolderOpen, Lock } from 'lucide-react';
+import { ArrowRight, Bookmark, FolderOpen, Lock } from 'lucide-react';
 import WebRTCBar from './WebRTCBar';
+import { useLibraryStore } from '../store/useLibraryStore';
 /*
  * Imported rather than referenced by path so the bundler fingerprints it and
  * emits it into dist/ — a bare "/bg-red-ball.mp4" resolves in dev (Vite serves
@@ -45,11 +46,22 @@ const FEATURES = [
 
 interface Props {
   onSelectFolder: () => void;
+  /** Opens the workspace manager, where saved presets can be loaded. */
+  onOpenPresets: () => void;
 }
 
-export default function Welcome({ onSelectFolder }: Props) {
+export default function Welcome({ onSelectFolder, onOpenPresets }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduceMotion = useReducedMotion();
+
+  /*
+   * A returning user with saved presets lands here, because a workspace whose
+   * folders all need re-granting has no active handles. Without this entry
+   * point their only route back is to re-pick a folder by hand — which is the
+   * exact chore presets exist to remove. Hidden until they have one, so the
+   * hero keeps a single call to action for first-time visitors.
+   */
+  const presetCount = useLibraryStore((s) => s.presets.length);
 
   useDustParticles(canvasRef, !reduceMotion);
 
@@ -183,7 +195,7 @@ export default function Welcome({ onSelectFolder }: Props) {
             no servers, absolute privacy.
           </motion.p>
 
-          <motion.div variants={rise} className="mt-10">
+          <motion.div variants={rise} className="mt-10 flex flex-wrap items-center gap-3">
             <button
               id="pick-folder-btn"
               onClick={onSelectFolder}
@@ -198,6 +210,22 @@ export default function Welcome({ onSelectFolder }: Props) {
               <span className="relative">Select Media Folder</span>
               <ArrowRight className="relative h-[18px] w-[18px] transition-transform duration-300 group-hover:translate-x-1" />
             </button>
+
+            {presetCount > 0 && (
+              <button
+                id="open-presets-btn"
+                onClick={onOpenPresets}
+                className="group inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/[0.04] px-6 py-4 text-sm font-bold uppercase tracking-[0.18em] text-white/70 backdrop-blur-[10px] transition duration-300 hover:border-white/35 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080104] active:scale-[0.98]"
+              >
+                <Bookmark className="h-[18px] w-[18px] transition-colors duration-300 group-hover:text-[#ff1053]" />
+                <span>My Presets</span>
+                {/* Fixed height so the badge matches the icon row rather than
+                    growing the pill taller than the primary CTA beside it. */}
+                <span className="inline-flex h-[18px] items-center rounded-full bg-white/10 px-2 text-[11px] leading-none tabular-nums text-white/70 transition-colors duration-300 group-hover:bg-white/20 group-hover:text-white">
+                  {presetCount}
+                </span>
+              </button>
+            )}
           </motion.div>
 
           <motion.p variants={rise} className="mt-5 max-w-md text-xs leading-relaxed text-white/55">

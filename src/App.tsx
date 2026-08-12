@@ -219,7 +219,7 @@ export default function App() {
   if (activeHandles.length === 0 && pendingRestore.length === 0) {
     return (
       <>
-        <Welcome onSelectFolder={pickFolder} />
+        <Welcome onSelectFolder={pickFolder} onOpenPresets={() => setManagerOpen(true)} />
         <LibraryManager open={managerOpen} onClose={() => setManagerOpen(false)} />
         {/* An invited guest usually arrives with no folder at all, so the
             invite prompt has to live on this branch too. */}
