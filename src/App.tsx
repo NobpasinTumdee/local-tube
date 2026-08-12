@@ -130,7 +130,7 @@ export default function App() {
   if (videos.length === 0) {
     return (
       <>
-        <Welcome onPick={pickFolder} />
+        <Welcome onSelectFolder={pickFolder} />
         {/* An invited guest usually arrives with no folder at all, so the
             invite prompt has to live on this branch too. */}
         <InviteJoinModal />

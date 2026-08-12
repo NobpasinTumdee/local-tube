@@ -128,6 +128,39 @@ input[type="range"]::-webkit-slider-thumb {
   background: rgb(var(--color-primary)); margin-top: -5px;
 }
 
+/*
+ * ── Welcome / landing screen ──
+ * Scoped to `.lt-welcome` only. This screen deliberately opts out of the
+ * theme tokens above and pins one fixed cinematic palette, so nothing here
+ * may leak into the player, the grid or the app chrome.
+ */
+.lt-welcome {
+  --lt-pink: #ff1053;
+  --lt-red: #e6004c;
+  --lt-ink: #080104;
+}
+
+/* Resting halo + a brighter one on hover, so the pill reads as lit glass
+   rather than as a flat outline. */
+.lt-welcome .lt-cta {
+  box-shadow:
+    0 0 0 0 rgba(255, 16, 83, 0),
+    0 8px 30px rgba(0, 0, 0, 0.45);
+}
+.lt-welcome .lt-cta:hover {
+  box-shadow:
+    0 0 26px rgba(255, 16, 83, 0.45),
+    0 0 60px rgba(230, 0, 76, 0.22),
+    0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lt-welcome .lt-cta,
+  .lt-welcome .lt-cta * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Hidden scrollbar utility — used by the premium sidebar */
 .scrollbar-hidden { scrollbar-width: none; -ms-overflow-style: none; }
 .scrollbar-hidden::-webkit-scrollbar { display: none; width: 0; height: 0; }

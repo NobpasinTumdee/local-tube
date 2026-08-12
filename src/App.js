@@ -125,7 +125,7 @@ export default function App() {
     /* No library yet — but a guest with no folder can still be watching a
      * peer's broadcast, so the viewer is mounted on this branch too. */
     if (videos.length === 0) {
-        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onPick: pickFolder }), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
+        return (_jsxs(_Fragment, { children: [_jsx(Welcome, { onSelectFolder: pickFolder }), _jsx(InviteJoinModal, {}), _jsx(WatchPartyLobby, {}), _jsx(BroadcastView, {})] }));
     }
     /* Layout mode keeps the library visible so users can fill slots. */
     const showHome = layoutMode || view === 'home' || playerMode === 'mini';
