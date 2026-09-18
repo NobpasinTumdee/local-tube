@@ -50,6 +50,8 @@ export default function PiPStage() {
         return null;
     return createPortal(
     /* bg-base pins the popout to the app's theme background; without it the
-       window shows the browser's default white behind transparent areas. */
-    _jsxs("div", { className: "flex h-full w-full flex-col overflow-hidden bg-base text-content", children: [content === 'grid' && _jsx(MediaViewer, {}), content === 'party' && _jsx(WatchPartyLobby, { embedded: true }), content === 'chat' && _jsx(ChatPanelBody, { embedded: true })] }), pipWindow.document.body);
+       window shows the browser's default white behind transparent areas.
+       h-screen/w-screen size it to the popout's own viewport, and flex-col
+       lets each surface claim the full height with flex-1. */
+    _jsxs("div", { className: "flex h-screen w-screen flex-col overflow-hidden bg-base text-content", children: [content === 'grid' && _jsx(MediaViewer, { embedded: true }), content === 'party' && _jsx(WatchPartyLobby, { embedded: true }), content === 'chat' && _jsx(ChatPanelBody, { embedded: true })] }), pipWindow.document.body);
 }

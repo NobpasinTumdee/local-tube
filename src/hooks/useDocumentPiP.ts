@@ -162,20 +162,33 @@ export function useDocumentPiP(): DocumentPiPState {
           height: opts?.height ?? 380,
         });
 
+        /*
+         * Reset the popout's html/body before anything else lands. The fresh
+         * document carries the UA's 8px body margin, which (with height:100%)
+         * pushes the page past the viewport and leaves a gap at the bottom.
+         * The background is set inline — with a Default Dark fallback, since
+         * --color-bg is undefined until copyStyles() runs — so the window never
+         * flashes white.
+         */
+        const html = w.document.documentElement;
+        const body = w.document.body;
+        html.style.margin = '0';
+        html.style.padding = '0';
+        html.style.height = '100%';
+        html.style.overflow = 'hidden';
+        body.style.margin = '0';
+        body.style.padding = '0';
+        body.style.height = '100vh';
+        body.style.overflow = 'hidden';
+        body.style.background = 'rgb(var(--color-bg, 15 15 15))';
+
         copyStyles(w.document);
         /* Carry the theme across, and keep it in sync if it changes later. */
-        w.document.body.className = document.body.className;
+        body.className = document.body.className;
         const themeObserver = new MutationObserver(() => {
-          if (!w.closed) w.document.body.className = document.body.className;
+          if (!w.closed) body.className = document.body.className;
         });
         themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-        /* The popout is a viewport of its own; without this the app's
-           html/body height rules never apply and content collapses. */
-        w.document.documentElement.style.height = '100%';
-        w.document.body.style.height = '100%';
-        w.document.body.style.margin = '0';
-        w.document.body.style.overflow = 'hidden';
 
         const onUnload = () => {
           themeObserver.disconnect();

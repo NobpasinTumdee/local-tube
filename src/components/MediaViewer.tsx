@@ -15,8 +15,12 @@ import MediaTile from './MediaTile';
  *
  * Framer Motion `layout` on the container + each cell gives fluid morphing when
  * the template changes or cells are added/removed.
+ *
+ * `embedded` is set when PiPStage renders this inside the Document PiP window.
+ * There the popout IS the viewport, so the viewer drops its card chrome and the
+ * main page's fixed vh height and stretches to fill it, same as fullscreen.
  */
-export default function MediaViewer() {
+export default function MediaViewer({ embedded = false }: { embedded?: boolean }) {
   const template = useStore((s) => s.currentLayoutTemplate);
   const activeMedia = useStore((s) => s.activeMedia);
   const videos = useStore((s) => s.videos);
@@ -56,6 +60,9 @@ export default function MediaViewer() {
   const videoCount = activeMedia.filter(
     (id) => id && videos.find((v) => v.id === id)?.mediaType === 'video',
   ).length;
+  /* Fullscreen and the popout both own a whole viewport: fill it edge to edge. */
+  const fill = isFullscreen || embedded;
+
   const cfg = getGridConfig(templateById(template), {
     length: activeMedia.length,
     cols: customCols,
@@ -69,14 +76,16 @@ export default function MediaViewer() {
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', damping: 26, stiffness: 300 }}
-      className={`overflow-hidden border-content/10 shadow-xl shadow-black/20 ${
+      className={`overflow-hidden border-content/10 ${
         isFullscreen
-          ? 'flex h-screen w-screen flex-col bg-base'
-          : 'rounded-2xl border bg-surface/50 backdrop-blur-sm'
+          ? 'flex h-screen w-screen flex-col bg-base shadow-xl shadow-black/20'
+          : embedded
+            ? 'flex min-h-0 flex-1 flex-col bg-base'
+            : 'rounded-2xl border bg-surface/50 shadow-xl shadow-black/20 backdrop-blur-sm'
       }`}
     >
       {/* ── Master control bar ── */}
-      <div className="flex items-center gap-2 border-b border-content/10 px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-content/10 px-3 py-2">
         <LayoutGrid className="h-4 w-4 text-primary" />
         <span className="text-sm font-semibold text-content">Layout</span>
         <span className="rounded-full bg-content/10 px-2 py-0.5 text-[11px] tabular-nums text-content/60">
@@ -88,10 +97,15 @@ export default function MediaViewer() {
           <MasterBtn label="Pause all videos" onClick={pauseAll} disabled={videoCount === 0}><Pause className="h-4 w-4" /></MasterBtn>
           <MasterBtn label="Unmute all videos" onClick={() => muteAll(false)} disabled={videoCount === 0}><Volume2 className="h-4 w-4" /></MasterBtn>
           <MasterBtn label="Mute all videos" onClick={() => muteAll(true)} disabled={videoCount === 0}><VolumeX className="h-4 w-4" /></MasterBtn>
-          <span className="mx-1 h-5 w-px bg-content/10" />
-          <MasterBtn label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
-            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-          </MasterBtn>
+          {/* A Document PiP window cannot go fullscreen, so the button would be dead there. */}
+          {!embedded && (
+            <>
+              <span className="mx-1 h-5 w-px bg-content/10" />
+              <MasterBtn label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
+                {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+              </MasterBtn>
+            </>
+          )}
           <span className="mx-1 h-5 w-px bg-content/10" />
           <MasterBtn label="Clear layout" onClick={clearLayout} disabled={filled === 0}>
             <Trash2 className="h-4 w-4" />
@@ -103,11 +117,11 @@ export default function MediaViewer() {
       </div>
 
       {/* ── The grid ── */}
-      <div className={`p-2 sm:p-3 ${isFullscreen ? 'flex min-h-0 flex-1 flex-col' : ''}`}>
+      <div className={fill ? 'flex min-h-0 flex-1 flex-col p-2' : 'p-2 sm:p-3'}>
         <motion.div
           layout
           style={cfg.style}
-          className={`grid gap-2 ${isFullscreen ? 'h-full flex-1' : 'h-[46vh] sm:h-[58vh]'}`}
+          className={`grid gap-2 ${fill ? 'min-h-0 flex-1' : 'h-[46vh] sm:h-[58vh]'}`}
         >
           <AnimatePresence initial={false}>
             {activeMedia.map((id, i) => (
@@ -128,7 +142,7 @@ export default function MediaViewer() {
         </motion.div>
 
         {filled === 0 && (
-          <p className="mt-3 text-center text-xs text-content/40">
+          <p className={`text-center text-xs text-content/40 ${fill ? 'shrink-0 pt-2' : 'mt-3'}`}>
             Click any video or image in the library below to drop it into a slot — or drag it onto a specific cell.
           </p>
         )}

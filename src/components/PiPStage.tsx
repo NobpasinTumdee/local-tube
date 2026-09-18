@@ -54,9 +54,11 @@ export default function PiPStage() {
 
   return createPortal(
     /* bg-base pins the popout to the app's theme background; without it the
-       window shows the browser's default white behind transparent areas. */
-    <div className="flex h-full w-full flex-col overflow-hidden bg-base text-content">
-      {content === 'grid' && <MediaViewer />}
+       window shows the browser's default white behind transparent areas.
+       h-screen/w-screen size it to the popout's own viewport, and flex-col
+       lets each surface claim the full height with flex-1. */
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-base text-content">
+      {content === 'grid' && <MediaViewer embedded />}
       {content === 'party' && <WatchPartyLobby embedded />}
       {content === 'chat' && <ChatPanelBody embedded />}
     </div>,
