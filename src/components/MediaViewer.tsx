@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, Trash2, X, LayoutGrid, Maximize, Minimize } from 'lucide-react';
 import { useStore, templateById } from '../store/useStore';
 import { getGridConfig } from '../utils/layoutGrid';
+import { isShortsSlot } from '../store/useShortsStore';
 import MediaTile from './MediaTile';
+import ShortsPlayer from './ShortsPlayer';
 
 /*
  * The multi-media grid. Renders a CSS-Grid whose shape comes from the active
@@ -57,8 +59,11 @@ export default function MediaViewer({ embedded = false }: { embedded?: boolean }
   const muteAll = (m: boolean) => forEachVideo((v) => { v.muted = m; });
 
   const filled = activeMedia.filter(Boolean).length;
+  /* A feed slot always holds a video, even though its id resolves to no
+     library entry — without this the master controls sit disabled over a
+     grid that is visibly playing. */
   const videoCount = activeMedia.filter(
-    (id) => id && videos.find((v) => v.id === id)?.mediaType === 'video',
+    (id) => id && (isShortsSlot(id) || videos.find((v) => v.id === id)?.mediaType === 'video'),
   ).length;
   /* Fullscreen and the popout both own a whole viewport: fill it edge to edge. */
   const fill = isFullscreen || embedded;
@@ -135,7 +140,13 @@ export default function MediaViewer({ embedded = false }: { embedded?: boolean }
                 style={cfg.slotStyle(i)}
                 className="relative min-h-0 min-w-0"
               >
-                <MediaTile slot={i} mediaId={id} onRegister={register} />
+                {/* A shorts:// id is a feed source, not a library file, so it
+                    never reaches MediaTile's `videos.find`. */}
+                {isShortsSlot(id) ? (
+                  <ShortsPlayer slot={i} sentinel={id} onRegister={register} />
+                ) : (
+                  <MediaTile slot={i} mediaId={id} onRegister={register} />
+                )}
               </motion.div>
             ))}
           </AnimatePresence>

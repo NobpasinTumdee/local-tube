@@ -16,8 +16,10 @@ import {
   Lock,
   LockOpen,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { startShortsFeed, isShortsSlot } from '../store/useShortsStore';
 import { useVaultStore } from '../store/useVaultStore';
 import type { HomeFilter, VirtualPlaylist } from '../store/useStore';
 import type { FolderNode } from '../utils/directoryScanner';
@@ -104,6 +106,7 @@ export default function Sidebar({ onOpenVault }: SidebarProps) {
           onClick={setHomeFilter}
           count={videos.filter((v) => v.mediaType === 'image').length}
         />
+        <ShortsNavItem />
 
         {/* ── COLLECTIONS ── */}
         <Divider />
@@ -287,6 +290,29 @@ function VaultNavItem({ onOpenVault }: { onOpenVault: () => void }) {
         <ShieldCheck className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/* ─── Shorts ───
+ *  Not a view of its own: it reshapes the multi-media grid into a wall of
+ *  9:16 feeds and starts them. That keeps Shorts composable with everything
+ *  else — the user can drop a normal video into one of the columns, or
+ *  reshape the grid, without leaving any special mode.
+ */
+function ShortsNavItem() {
+  const layoutMode = useStore((s) => s.layoutMode);
+  const activeMedia = useStore((s) => s.activeMedia);
+  const videoCount = useStore((s) => s.videos.filter((v) => v.mediaType === 'video').length);
+  const active = layoutMode && activeMedia.some((id) => isShortsSlot(id));
+
+  return (
+    <NavItem
+      icon={<Zap className={`h-[18px] w-[18px] ${active ? 'fill-current' : ''}`} />}
+      label="Shorts"
+      count={videoCount}
+      active={active}
+      onClick={() => startShortsFeed('wall')}
+    />
   );
 }
 

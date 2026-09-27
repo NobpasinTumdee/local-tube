@@ -1,7 +1,8 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Pause, Volume2, VolumeX, X, GripVertical, Plus, Film, Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw, } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, X, GripVertical, Plus, Film, Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw, Zap, Folder as FolderIcon, } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { shortsSlotId } from '../store/useShortsStore';
 import { formatDuration } from '../utils/format';
 import { DND_MEDIA_ID, DND_SLOT } from '../utils/layoutGrid';
 import AmbientGlow from './AmbientGlow';
@@ -151,9 +152,7 @@ export default function MediaTile({ slot, mediaId, onRegister }) {
     const zoomable = scale > 1;
     /* ─────────────── EMPTY SLOT ─────────────── */
     if (!item) {
-        return (_jsxs("button", { type: "button", onDrop: onDrop, onDragOver: onDragOver, onDragLeave: () => setDragOver(false), className: `flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed text-content/40 transition ${dragOver
-                ? 'border-primary/70 bg-primary/10 text-content/80'
-                : 'border-content/10 bg-content/[0.02] hover:border-content/25 hover:text-content/60'}`, children: [_jsx(Plus, { className: "h-6 w-6" }), _jsxs("span", { className: "text-xs font-medium", children: ["Slot ", slot + 1] }), _jsx("span", { className: "px-4 text-center text-[11px] text-content/30", children: "Click a video or image below, or drop one here" })] }));
+        return (_jsx(EmptySlot, { slot: slot, dragOver: dragOver, onDrop: onDrop, onDragOver: onDragOver, onDragLeave: () => setDragOver(false) }));
     }
     /* ─────────────── FILLED SLOT ─────────────── */
     return (_jsxs("div", { onDrop: onDrop, onDragOver: onDragOver, onDragLeave: () => setDragOver(false), onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false), className: `group relative isolate h-full w-full overflow-hidden rounded-xl bg-black ring-1 transition ${dragOver ? 'ring-2 ring-primary/80' : 'ring-content/10'}`, children: [!isImage && _jsx(AmbientGlow, { videoRef: videoRef, active: ambientOn && !!src, className: "z-[-1]" }), isImage ? (_jsx("div", { className: "h-full w-full overflow-hidden", onWheel: onWheel, onPointerDown: onPointerDown, onPointerMove: onPointerMove, onPointerUp: endPan, onPointerLeave: endPan, style: { cursor: zoomable ? (isPanning ? 'grabbing' : 'grab') : 'default', touchAction: 'none' }, children: src ? (_jsx("img", { src: src, alt: item.title, draggable: false, className: "h-full w-full select-none object-contain", style: {
@@ -163,6 +162,43 @@ export default function MediaTile({ slot, mediaId, onRegister }) {
                             e.dataTransfer.setData(DND_SLOT, String(slot));
                             e.dataTransfer.effectAllowed = 'move';
                         }, className: "pointer-events-auto flex h-6 w-6 cursor-grab items-center justify-center rounded text-white/70 hover:bg-white/15 hover:text-white active:cursor-grabbing", title: "Drag to swap slot", children: _jsx(GripVertical, { className: "h-4 w-4" }) }), _jsxs("span", { className: "flex items-center gap-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/90", children: [isImage ? _jsx(ImageIcon, { className: "h-3 w-3" }) : _jsx(Film, { className: "h-3 w-3" }), isImage ? 'Image' : 'Video'] }), _jsx("span", { className: "min-w-0 flex-1 truncate text-[11px] font-medium text-white/85", children: item.title }), _jsx("button", { onClick: () => removeFromLayout(slot), className: "pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/80 transition hover:bg-primary hover:text-white", "aria-label": "Remove from layout", title: "Remove", children: _jsx(X, { className: "h-3.5 w-3.5" }) })] }), isImage ? (_jsxs("div", { className: `absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pb-1.5 pt-6 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`, children: [_jsx(TileBtn, { onClick: zoomOut, label: "Zoom out", disabled: scale <= 1, children: _jsx(ZoomOut, { className: "h-4 w-4" }) }), _jsxs("span", { className: "min-w-[2.75rem] text-center text-[10px] font-semibold tabular-nums text-white/80", children: [Math.round(scale * 100), "%"] }), _jsx(TileBtn, { onClick: zoomIn, label: "Zoom in", disabled: scale >= MAX_ZOOM, children: _jsx(ZoomIn, { className: "h-4 w-4" }) }), _jsx(TileBtn, { onClick: resetZoom, label: "Reset zoom", disabled: scale === 1 && offset.x === 0 && offset.y === 0, children: _jsx(RotateCcw, { className: "h-4 w-4" }) }), zoomable && _jsx("span", { className: "ml-auto pr-1 text-[10px] text-white/50", children: "drag to pan" })] })) : (_jsxs("div", { className: `absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 pb-1.5 pt-6 transition-opacity ${hovered || !playing ? 'opacity-100' : 'opacity-0'}`, children: [_jsx("div", { className: "group/bar relative flex h-3 cursor-pointer items-center", onClick: seek, children: _jsx("div", { className: "h-[3px] w-full rounded-full bg-white/25 transition-all group-hover/bar:h-[5px]", children: _jsx("div", { className: "h-full rounded-full bg-primary", style: { width: `${progress}%` } }) }) }), _jsxs("div", { className: "flex items-center gap-1", children: [_jsx(TileBtn, { onClick: togglePlay, label: playing ? 'Pause' : 'Play', children: playing ? _jsx(Pause, { className: "h-4 w-4" }) : _jsx(Play, { className: "h-4 w-4" }) }), _jsx(TileBtn, { onClick: toggleMute, label: muted ? 'Unmute' : 'Mute', children: muted ? _jsx(VolumeX, { className: "h-4 w-4" }) : _jsx(Volume2, { className: "h-4 w-4" }) }), _jsxs("span", { className: "ml-auto text-[10px] tabular-nums text-white/70", children: [formatDuration(current), " / ", formatDuration(duration || 0)] })] })] }))] }));
+}
+/* ─────────────────────────────────────────────────────────────
+ *  EMPTY SLOT — content type picker
+ * ─────────────────────────────────────────────────────────────
+ *  A cell can hold two kinds of thing now, so the placeholder asks which.
+ *  Clicking a library item still fills the slot directly (the old path is
+ *  untouched) — this only adds the routes that have no library item to click:
+ *  an endless feed over everything, or over one folder.
+ * ───────────────────────────────────────────────────────────── */
+function EmptySlot({ slot, dragOver, onDrop, onDragOver, onDragLeave, }) {
+    const addToLayout = useStore((s) => s.addToLayout);
+    const directoryTree = useStore((s) => s.directoryTree);
+    const [picking, setPicking] = useState('none');
+    /* Every folder that actually holds media, flattened for a simple list. */
+    const folders = useMemo(() => {
+        const out = [];
+        const walk = (node, depth) => {
+            for (const child of node.children) {
+                if (child.mediaCount > 0)
+                    out.push({ path: child.path, name: child.name, depth, count: child.mediaCount });
+                walk(child, depth + 1);
+            }
+        };
+        if (directoryTree)
+            walk(directoryTree, 0);
+        return out;
+    }, [directoryTree]);
+    const startFeed = (sourceFolders) => {
+        addToLayout(shortsSlotId(sourceFolders), slot);
+        setPicking('none');
+    };
+    return (_jsxs("div", { onDrop: onDrop, onDragOver: onDragOver, onDragLeave: onDragLeave, className: `flex h-full w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border-2 border-dashed p-3 text-content/40 transition ${dragOver
+            ? 'border-primary/70 bg-primary/10 text-content/80'
+            : 'border-content/10 bg-content/[0.02]'}`, children: [picking === 'none' && (_jsxs("button", { type: "button", onClick: () => setPicking('menu'), className: "flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg text-content/40 transition hover:text-content/70", children: [_jsx(Plus, { className: "h-6 w-6" }), _jsxs("span", { className: "text-xs font-medium", children: ["Slot ", slot + 1] }), _jsx("span", { className: "px-2 text-center text-[11px] text-content/30", children: "Click to choose what plays here, or drop a file" })] })), picking === 'menu' && (_jsxs("div", { className: "flex w-full max-w-[15rem] flex-col gap-1.5", children: [_jsx(SlotOption, { icon: _jsx(Film, { className: "h-4 w-4" }), title: "Play a specific file", hint: "Pick any video or image from the library below", onClick: () => setPicking('none') }), _jsx(SlotOption, { icon: _jsx(Zap, { className: "h-4 w-4" }), title: "Shorts feed \u2014 all folders", hint: "Endless random videos from the whole workspace", onClick: () => startFeed([]) }), _jsx(SlotOption, { icon: _jsx(FolderIcon, { className: "h-4 w-4" }), title: "Shorts feed \u2014 pick a folder\u2026", hint: folders.length ? `${folders.length} folders available` : 'No folders with media', disabled: folders.length === 0, onClick: () => setPicking('folders') })] })), picking === 'folders' && (_jsxs("div", { className: "flex h-full w-full max-w-[16rem] flex-col gap-1", children: [_jsx("button", { onClick: () => setPicking('menu'), className: "shrink-0 self-start rounded px-1 text-[11px] font-semibold text-content/50 transition hover:text-content", children: "\u2190 Back" }), _jsx("div", { className: "min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1", children: folders.map((f) => (_jsxs("button", { onClick: () => startFeed([f.path]), className: "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-content/70 transition hover:bg-content/10 hover:text-content", style: { paddingLeft: `${0.5 + f.depth * 0.6}rem` }, title: f.path, children: [_jsx(FolderIcon, { className: "h-3 w-3 shrink-0 text-content/40" }), _jsx("span", { className: "min-w-0 flex-1 truncate", children: f.name }), _jsx("span", { className: "shrink-0 tabular-nums text-content/30", children: f.count })] }, f.path))) })] }))] }));
+}
+function SlotOption({ icon, title, hint, onClick, disabled, }) {
+    return (_jsxs("button", { onClick: onClick, disabled: disabled, className: "flex w-full items-center gap-2.5 rounded-lg border border-content/10 bg-surface/60 px-2.5 py-2 text-left transition hover:border-primary/40 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40", children: [_jsx("span", { className: "shrink-0 text-primary", children: icon }), _jsxs("span", { className: "min-w-0", children: [_jsx("span", { className: "block truncate text-[12px] font-semibold text-content", children: title }), _jsx("span", { className: "block truncate text-[10px] text-content/45", children: hint })] })] }));
 }
 function Loader({ icon }) {
     return _jsx("div", { className: "flex h-full w-full items-center justify-center", children: icon });

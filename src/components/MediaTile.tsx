@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, X, GripVertical, Plus, Film,
-  Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw,
+  Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw, Zap, Folder as FolderIcon,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { shortsSlotId } from '../store/useShortsStore';
+import type { FolderNode } from '../utils/directoryScanner';
 import { formatDuration } from '../utils/format';
 import { DND_MEDIA_ID, DND_SLOT } from '../utils/layoutGrid';
 import AmbientGlow from './AmbientGlow';
@@ -164,23 +166,13 @@ export default function MediaTile({ slot, mediaId, onRegister }: Props) {
   /* ─────────────── EMPTY SLOT ─────────────── */
   if (!item) {
     return (
-      <button
-        type="button"
+      <EmptySlot
+        slot={slot}
+        dragOver={dragOver}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDragLeave={() => setDragOver(false)}
-        className={`flex h-full w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed text-content/40 transition ${
-          dragOver
-            ? 'border-primary/70 bg-primary/10 text-content/80'
-            : 'border-content/10 bg-content/[0.02] hover:border-content/25 hover:text-content/60'
-        }`}
-      >
-        <Plus className="h-6 w-6" />
-        <span className="text-xs font-medium">Slot {slot + 1}</span>
-        <span className="px-4 text-center text-[11px] text-content/30">
-          Click a video or image below, or drop one here
-        </span>
-      </button>
+      />
     );
   }
 
@@ -320,6 +312,147 @@ export default function MediaTile({ slot, mediaId, onRegister }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+ *  EMPTY SLOT — content type picker
+ * ─────────────────────────────────────────────────────────────
+ *  A cell can hold two kinds of thing now, so the placeholder asks which.
+ *  Clicking a library item still fills the slot directly (the old path is
+ *  untouched) — this only adds the routes that have no library item to click:
+ *  an endless feed over everything, or over one folder.
+ * ───────────────────────────────────────────────────────────── */
+function EmptySlot({
+  slot, dragOver, onDrop, onDragOver, onDragLeave,
+}: {
+  slot: number;
+  dragOver: boolean;
+  onDrop: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: () => void;
+}) {
+  const addToLayout = useStore((s) => s.addToLayout);
+  const directoryTree = useStore((s) => s.directoryTree);
+  const [picking, setPicking] = useState<'none' | 'menu' | 'folders'>('none');
+
+  /* Every folder that actually holds media, flattened for a simple list. */
+  const folders = useMemo(() => {
+    const out: { path: string; name: string; depth: number; count: number }[] = [];
+    const walk = (node: FolderNode, depth: number) => {
+      for (const child of node.children) {
+        if (child.mediaCount > 0) out.push({ path: child.path, name: child.name, depth, count: child.mediaCount });
+        walk(child, depth + 1);
+      }
+    };
+    if (directoryTree) walk(directoryTree, 0);
+    return out;
+  }, [directoryTree]);
+
+  const startFeed = (sourceFolders: string[]) => {
+    addToLayout(shortsSlotId(sourceFolders), slot);
+    setPicking('none');
+  };
+
+  return (
+    <div
+      onDrop={onDrop}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      className={`flex h-full w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border-2 border-dashed p-3 text-content/40 transition ${
+        dragOver
+          ? 'border-primary/70 bg-primary/10 text-content/80'
+          : 'border-content/10 bg-content/[0.02]'
+      }`}
+    >
+      {picking === 'none' && (
+        <button
+          type="button"
+          onClick={() => setPicking('menu')}
+          className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg text-content/40 transition hover:text-content/70"
+        >
+          <Plus className="h-6 w-6" />
+          <span className="text-xs font-medium">Slot {slot + 1}</span>
+          <span className="px-2 text-center text-[11px] text-content/30">
+            Click to choose what plays here, or drop a file
+          </span>
+        </button>
+      )}
+
+      {picking === 'menu' && (
+        <div className="flex w-full max-w-[15rem] flex-col gap-1.5">
+          <SlotOption
+            icon={<Film className="h-4 w-4" />}
+            title="Play a specific file"
+            hint="Pick any video or image from the library below"
+            onClick={() => setPicking('none')}
+          />
+          <SlotOption
+            icon={<Zap className="h-4 w-4" />}
+            title="Shorts feed — all folders"
+            hint="Endless random videos from the whole workspace"
+            onClick={() => startFeed([])}
+          />
+          <SlotOption
+            icon={<FolderIcon className="h-4 w-4" />}
+            title="Shorts feed — pick a folder…"
+            hint={folders.length ? `${folders.length} folders available` : 'No folders with media'}
+            disabled={folders.length === 0}
+            onClick={() => setPicking('folders')}
+          />
+        </div>
+      )}
+
+      {picking === 'folders' && (
+        <div className="flex h-full w-full max-w-[16rem] flex-col gap-1">
+          <button
+            onClick={() => setPicking('menu')}
+            className="shrink-0 self-start rounded px-1 text-[11px] font-semibold text-content/50 transition hover:text-content"
+          >
+            ← Back
+          </button>
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
+            {folders.map((f) => (
+              <button
+                key={f.path}
+                onClick={() => startFeed([f.path])}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-content/70 transition hover:bg-content/10 hover:text-content"
+                style={{ paddingLeft: `${0.5 + f.depth * 0.6}rem` }}
+                title={f.path}
+              >
+                <FolderIcon className="h-3 w-3 shrink-0 text-content/40" />
+                <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                <span className="shrink-0 tabular-nums text-content/30">{f.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SlotOption({
+  icon, title, hint, onClick, disabled,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex w-full items-center gap-2.5 rounded-lg border border-content/10 bg-surface/60 px-2.5 py-2 text-left transition hover:border-primary/40 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <span className="shrink-0 text-primary">{icon}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-[12px] font-semibold text-content">{title}</span>
+        <span className="block truncate text-[10px] text-content/45">{hint}</span>
+      </span>
+    </button>
   );
 }
 

@@ -26,6 +26,21 @@ const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel'] as const;
  * so vaulted files vanish from All Media without the app knowing which
  * files they are.
  */
+/*
+ * Last set resolved by the hook below, for callers that are not components.
+ *
+ * The Shorts queue is built by a plain function (no hooks available) and must
+ * still skip vaulted files. Resolving digests there would mean an async hash
+ * per library item on every shuffle, so it reads this snapshot instead. The
+ * hook is mounted once at the app root, which keeps it current.
+ */
+let vaultHiddenSnapshot: ReadonlySet<string> = new Set();
+
+/** Synchronous read of the ids currently hidden by the locked vault. */
+export function getVaultHiddenIds(): ReadonlySet<string> {
+  return vaultHiddenSnapshot;
+}
+
 export function useVaultHiddenIds(): ReadonlySet<string> {
   const videos = useStore((s) => s.videos);
   const hiddenDigests = useVaultStore((s) => s.hiddenDigests);
@@ -33,6 +48,10 @@ export function useVaultHiddenIds(): ReadonlySet<string> {
   const isUnlocked = useVaultStore((s) => s.isVaultUnlocked);
 
   const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set());
+
+  /* Publish for getVaultHiddenIds(). Render-phase assignment is safe here:
+     it is a cache of what this hook already returns, never a render input. */
+  vaultHiddenSnapshot = resolved;
 
   const digestSet = useMemo(() => new Set(hiddenDigests), [hiddenDigests]);
 

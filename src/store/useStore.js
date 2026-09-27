@@ -151,6 +151,10 @@ export function slotCountFor(id, customCols, customRows) {
         return Math.max(1, customCols * customRows);
     return templateById(id).slots;
 }
+/* Mirrors SHORTS_PREFIX in useShortsStore. Duplicated rather than imported:
+   that module imports this one, and a cycle between two Zustand stores is not
+   worth one string. */
+const SHORTS_SLOT_PREFIX = 'shorts://';
 /** Build a fresh slot array of `n` empty cells. */
 function emptySlots(n) {
     return Array.from({ length: Math.max(1, n) }, () => null);
@@ -249,6 +253,10 @@ export const useStore = create()(persist((set, get) => ({
             activeMedia: s.activeMedia.map((id) => {
                 if (id == null)
                     return null;
+                /* A Shorts feed slot is a source, not a file: it survives a re-scan
+                   and simply reshuffles against the new library. */
+                if (id.startsWith(SHORTS_SLOT_PREFIX))
+                    return id;
                 const liveId = remap.get(id) ?? id;
                 return ids.has(liveId) ? liveId : null;
             }),
