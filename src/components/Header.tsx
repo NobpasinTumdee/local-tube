@@ -51,19 +51,8 @@ export default function Header({ onOpenWorkspace }: Props) {
         </svg>
       </button>
 
-      {/* logo — click goes home (video keeps playing in mini-player) */}
-      <div className="flex shrink-0 items-center gap-1 select-none cursor-pointer" onClick={() => { useStore.getState().setActivePlaylist(null); useStore.getState().goHome(); }}>
-        <svg viewBox="0 0 28 20" className="h-5 w-auto">
-          <rect x="0" y="0" width="28" height="20" rx="4" className="fill-primary" />
-          <polygon points="11,4 11,16 21,10" className="fill-content" />
-        </svg>
-        <span className="ml-0.5 text-lg font-bold tracking-tight text-content">
-          LocalTube
-        </span>
-      </div>
-
       {/* search bar */}
-      <form onSubmit={submit} className="mx-auto flex w-full max-w-xl">
+      <form onSubmit={submit} className="mx-auto flex w-full max-w-xl pl-1">
         <div className="relative flex w-full">
           <input
             ref={inputRef}

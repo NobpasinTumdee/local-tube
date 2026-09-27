@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
-import { useStore, templateById } from './useStore';
-import type { LayoutTemplateId, VideoMeta } from './useStore';
+import { useStore } from './useStore';
+import type { VideoMeta } from './useStore';
 import { getVaultHiddenIds } from '../hooks/useVaultGuard';
 
 /* ─────────────────────────────────────────────────────────────
@@ -130,25 +131,71 @@ export function generateShortsQueue(sourceFolders: readonly string[] = []): stri
 
 /* ── store ── */
 
+/** How the video fills its frame. Cover = the Shorts look, contain = as shot. */
+export type ShortsFit = 'cover' | 'contain';
+
+/** Slot index reserved for the right-hand drawer (never a real grid cell). */
+export const SHORTS_PANEL_SLOT = -1;
+
+/** How many past videos a slot remembers for the Previous button. */
+const HISTORY_LIMIT = 30;
+
 interface ShortsState {
   /** slotKey → what that slot is playing right now. */
   current: Record<string, string | null>;
   /** slotKey → ids still to play. Refilled (reshuffled) when it runs dry. */
   queues: Record<string, string[]>;
+  /** slotKey → already-played ids, oldest first. Drives Previous. */
+  history: Record<string, string[]>;
+
+  /* ── right-hand drawer ── */
+  isShortsPanelOpen: boolean;
+  /** Drawer width in px, kept here so a remount does not lose the drag. */
+  panelWidth: number;
+  /** Folder subtrees the drawer draws from. Empty = the whole workspace. */
+  panelFolders: string[];
+  /** Shared by every feed, so the choice survives moving between videos. */
+  fit: ShortsFit;
+
+  toggleShortsPanel: () => void;
+  setShortsPanelOpen: (open: boolean) => void;
+  setPanelWidth: (px: number) => void;
+  setPanelFolders: (folders: string[]) => void;
+  setFit: (fit: ShortsFit) => void;
+
   /**
    * Advances one slot to a new random video and returns it (null when the
    * source has nothing playable). Each slot pulls independently.
    */
   getNextShort: (slotKey: string) => string | null;
+  /** Steps back to the previously played video, or null at the start. */
+  getPrevShort: (slotKey: string) => string | null;
   /** Throws away a slot's queue so the next pull reshuffles the source. */
   reshuffle: (slotKey: string) => void;
   /** Drops a slot's state when its tile unmounts. */
   releaseSlot: (slotKey: string) => void;
 }
 
+export const PANEL_MIN_WIDTH = 260;
+export const PANEL_MAX_WIDTH = 720;
+const PANEL_DEFAULT_WIDTH = 360;
+
 export const useShortsStore = create<ShortsState>()((set, get) => ({
   current: {},
   queues: {},
+  history: {},
+
+  isShortsPanelOpen: false,
+  panelWidth: PANEL_DEFAULT_WIDTH,
+  panelFolders: [],
+  fit: 'cover',
+
+  toggleShortsPanel: () => set((s) => ({ isShortsPanelOpen: !s.isShortsPanelOpen })),
+  setShortsPanelOpen: (open) => set({ isShortsPanelOpen: open }),
+  setPanelWidth: (px) =>
+    set({ panelWidth: Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, Math.round(px))) }),
+  setPanelFolders: (folders) => set({ panelFolders: [...new Set(folders)] }),
+  setFit: (fit) => set({ fit }),
 
   getNextShort: (slotKey) => {
     const folders = shortsFolders(sentinelOfKey(slotKey));
@@ -169,11 +216,35 @@ export const useShortsStore = create<ShortsState>()((set, get) => ({
     const next = queue[idx];
     const remaining = queue.slice(0, idx).concat(queue.slice(idx + 1));
 
-    set((s) => ({
-      current: { ...s.current, [slotKey]: next },
-      queues: { ...s.queues, [slotKey]: remaining },
-    }));
+    set((s) => {
+      /* Bounded: an endless feed left running would otherwise grow this
+         array for as long as the app is open. */
+      const past = playing ? [...(s.history[slotKey] ?? []), playing].slice(-HISTORY_LIMIT) : s.history[slotKey] ?? [];
+      return {
+        current: { ...s.current, [slotKey]: next },
+        queues: { ...s.queues, [slotKey]: remaining },
+        history: { ...s.history, [slotKey]: past },
+      };
+    });
     return next;
+  },
+
+  getPrevShort: (slotKey) => {
+    const past = get().history[slotKey] ?? [];
+    if (past.length === 0) return null;
+
+    const prev = past[past.length - 1];
+    const playing = get().current[slotKey] ?? null;
+
+    set((s) => ({
+      current: { ...s.current, [slotKey]: prev },
+      history: { ...s.history, [slotKey]: past.slice(0, -1) },
+      /* The video we are stepping away from goes back to the FRONT of the
+         queue, so going back then forward returns to it instead of jumping
+         to an unrelated random pick. */
+      queues: { ...s.queues, [slotKey]: playing ? [playing, ...(s.queues[slotKey] ?? [])] : s.queues[slotKey] ?? [] },
+    }));
+    return prev;
   },
 
   reshuffle: (slotKey) => set((s) => ({ queues: { ...s.queues, [slotKey]: [] } })),
@@ -182,9 +253,11 @@ export const useShortsStore = create<ShortsState>()((set, get) => ({
     set((s) => {
       const current = { ...s.current };
       const queues = { ...s.queues };
+      const history = { ...s.history };
       delete current[slotKey];
       delete queues[slotKey];
-      return { current, queues };
+      delete history[slotKey];
+      return { current, queues, history };
     }),
 }));
 
@@ -193,22 +266,33 @@ export function useCurrentShort(slotKey: string): string | null {
   return useShortsStore((s) => s.current[slotKey] ?? null);
 }
 
-/**
- * Turns the grid into a Shorts wall and starts playing immediately.
- *
- * Used by the sidebar entry. `single` gives one centred 9:16 stage, `wall`
- * three side-by-side columns — both are existing layout templates, so the
- * layout selector keeps working afterwards and the user can reshape or drop
- * a normal video into any slot.
- */
-export function startShortsFeed(shape: 'single' | 'wall' = 'wall', folders: readonly string[] = []): void {
-  const { setLayoutTemplate, addToLayout, clearLayout } = useStore.getState();
-  const template: LayoutTemplateId = shape === 'single' ? 'single' : 'threeCol';
-
-  setLayoutTemplate(template);
-  clearLayout();
-
-  const sentinel = shortsSlotId(folders);
-  const slots = templateById(template).slots;
-  for (let i = 0; i < slots; i++) addToLayout(sentinel, i);
+/** True when this slot has somewhere to go back to. */
+export function useCanGoBack(slotKey: string): boolean {
+  return useShortsStore((s) => (s.history[slotKey] ?? []).length > 0);
 }
+
+/**
+ * Horizontal space the open drawer occupies, for surfaces that must not slide
+ * under it. The drawer is position:fixed (it has to sit beside the equally
+ * fixed full-screen player), so nothing reserves this space automatically.
+ */
+export function useShortsPanelInset(): number {
+  const open = useShortsStore((s) => s.isShortsPanelOpen);
+  const width = useShortsStore((s) => s.panelWidth);
+  return open ? width : 0;
+}
+
+/** The sentinel the right-hand drawer is currently feeding from. */
+export function usePanelSentinel(): string {
+  const folders = useShortsStore((s) => s.panelFolders);
+  return useMemo(() => shortsSlotId(folders), [folders]);
+}
+
+/**
+ * Adds a Shorts feed to the multi-media grid (the slot picker's route).
+ * The drawer is separate: it plays alongside whatever the grid is doing.
+ */
+export function addShortsToGrid(folders: readonly string[] = [], slot?: number): void {
+  useStore.getState().addToLayout(shortsSlotId(folders), slot);
+}
+

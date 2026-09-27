@@ -8,6 +8,7 @@ import { PlayerGoLiveButton } from './BroadcastView';
 import { setActiveVideoElement } from '../services/mediaElementRegistry';
 import { useScrubFrames } from '../hooks/useScrubFrames';
 import { useDocumentPiP, useIsPoppedOut } from '../hooks/useDocumentPiP';
+import { useShortsPanelInset } from '../store/useShortsStore';
 import { formatDuration, formatSize, formatRelative } from '../utils/format';
 import type { VideoEntry } from '../utils/directoryScanner';
 
@@ -85,6 +86,7 @@ export default function Player() {
   /* Only the grid counts here — the chat or the room being popped out must
      not make this button read as "already out". */
   const pipWindow = useIsPoppedOut('grid');
+  const shortsInset = useShortsPanelInset();
 
   const video = useMemo(
     () => videos.find((v) => v.id === currentVideoId),
@@ -362,7 +364,8 @@ export default function Player() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="fixed inset-0 z-[99] bg-base"
+            style={{ right: shortsInset }}
+            className="fixed inset-x-0 bottom-0 top-14 z-[99] bg-base"
           />
         )}
       </AnimatePresence>
@@ -371,9 +374,14 @@ export default function Player() {
       <motion.div
         layout
         transition={{ type: 'spring', damping: 28, stiffness: 320, mass: 0.8 }}
+        /* Both surfaces are fixed, so the drawer cannot push the player —
+           it has to give up the width itself. */
+        style={isFull ? { right: shortsInset } : undefined}
         className={
           isFull
-            ? 'fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-base lg:flex-row'
+            /* top-14 leaves the header visible: it is no longer hidden while
+               a video plays, only in native fullscreen (see App.tsx). */
+            ? 'fixed inset-x-0 bottom-0 top-14 z-[100] flex flex-col overflow-y-auto bg-base lg:flex-row'
             : 'fixed bottom-5 right-5 z-[200] flex w-[340px] flex-col overflow-hidden rounded-xl border border-content/10 bg-surface shadow-2xl shadow-black/60'
         }
       >

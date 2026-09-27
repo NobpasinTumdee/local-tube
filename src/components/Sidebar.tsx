@@ -19,7 +19,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { startShortsFeed, isShortsSlot } from '../store/useShortsStore';
+import { useShortsStore } from '../store/useShortsStore';
 import { useVaultStore } from '../store/useVaultStore';
 import type { HomeFilter, VirtualPlaylist } from '../store/useStore';
 import type { FolderNode } from '../utils/directoryScanner';
@@ -294,24 +294,22 @@ function VaultNavItem({ onOpenVault }: { onOpenVault: () => void }) {
 }
 
 /* ─── Shorts ───
- *  Not a view of its own: it reshapes the multi-media grid into a wall of
- *  9:16 feeds and starts them. That keeps Shorts composable with everything
- *  else — the user can drop a normal video into one of the columns, or
- *  reshape the grid, without leaving any special mode.
+ *  Opens the right-hand drawer rather than reshaping the grid: the point is
+ *  to watch shorts NEXT TO whatever is already playing, so this must not
+ *  disturb the main column at all.
  */
 function ShortsNavItem() {
-  const layoutMode = useStore((s) => s.layoutMode);
-  const activeMedia = useStore((s) => s.activeMedia);
+  const open = useShortsStore((s) => s.isShortsPanelOpen);
+  const toggleShortsPanel = useShortsStore((s) => s.toggleShortsPanel);
   const videoCount = useStore((s) => s.videos.filter((v) => v.mediaType === 'video').length);
-  const active = layoutMode && activeMedia.some((id) => isShortsSlot(id));
 
   return (
     <NavItem
-      icon={<Zap className={`h-[18px] w-[18px] ${active ? 'fill-current' : ''}`} />}
+      icon={<Zap className={`h-[18px] w-[18px] ${open ? 'fill-current' : ''}`} />}
       label="Shorts"
       count={videoCount}
-      active={active}
-      onClick={() => startShortsFeed('wall')}
+      active={open}
+      onClick={toggleShortsPanel}
     />
   );
 }

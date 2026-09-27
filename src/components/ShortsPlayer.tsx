@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Heart, SkipForward, Volume2, VolumeX, X, GripVertical, Zap, Shuffle, Play, Pause,
+  Heart, SkipForward, SkipBack, Volume2, VolumeX, X, GripVertical, Zap, Shuffle,
+  Play, Pause, Maximize2, Minimize2,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import {
-  useShortsStore, useCurrentShort, shortsSlotKey, shortsSourceLabel,
+  useShortsStore, useCurrentShort, useCanGoBack, shortsSlotKey, shortsSourceLabel,
 } from '../store/useShortsStore';
+import { formatDuration } from '../utils/format';
 import { DND_SLOT } from '../utils/layoutGrid';
 
 interface Props {
-  /** Grid slot this feed occupies. */
+  /** Grid slot this feed occupies (SHORTS_PANEL_SLOT for the drawer). */
   slot: number;
   /** The `shorts://…` id stored in that slot — carries the source folders. */
   sentinel: string;
   /** Same registry MediaTile uses, so master play/pause/mute reach the feed. */
   onRegister?: (slot: number, el: HTMLVideoElement | null) => void;
+  /**
+   * `tile` lives in a grid cell and owns slot chrome (drag handle, remove).
+   * `panel` lives in the right drawer, which owns its own header instead.
+   */
+  variant?: 'tile' | 'panel';
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -33,7 +40,8 @@ interface Props {
  *  and four soundtracks at full volume is not a feature.
  * ───────────────────────────────────────────────────────────── */
 
-export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
+export default function ShortsPlayer({ slot, sentinel, onRegister, variant = 'tile' }: Props) {
+  const isPanel = variant === 'panel';
   const slotKey = useMemo(() => shortsSlotKey(slot, sentinel), [slot, sentinel]);
 
   const videos = useStore((s) => s.videos);
@@ -43,9 +51,13 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
   const videoMeta = useStore((s) => s.videoMeta);
 
   const getNextShort = useShortsStore((s) => s.getNextShort);
+  const getPrevShort = useShortsStore((s) => s.getPrevShort);
   const reshuffle = useShortsStore((s) => s.reshuffle);
   const releaseSlot = useShortsStore((s) => s.releaseSlot);
+  const fit = useShortsStore((s) => s.fit);
+  const setFit = useShortsStore((s) => s.setFit);
   const currentId = useCurrentShort(slotKey);
+  const canGoBack = useCanGoBack(slotKey);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [src, setSrc] = useState<string | null>(null);
@@ -53,6 +65,11 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
   const [playing, setPlaying] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [liked, setLiked] = useState(false);
+  /* Live playhead for the scrubber. Kept local: at ~4Hz per feed this would
+     re-render every other slot if it lived in the store. */
+  const [time, setTime] = useState(0);
+  const [length, setLength] = useState(0);
+  const [scrubbing, setScrubbing] = useState(false);
 
   const item = useMemo(() => videos.find((v) => v.id === currentId) ?? null, [videos, currentId]);
   const isFavorite = !!currentId && favorites.includes(currentId);
@@ -60,6 +77,10 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
   const next = useCallback(() => {
     getNextShort(slotKey);
   }, [getNextShort, slotKey]);
+
+  const prev = useCallback(() => {
+    getPrevShort(slotKey);
+  }, [getPrevShort, slotKey]);
 
   /* First video for this slot, and a fresh one whenever the library changes
      under it (folder unmounted, re-scan) leaves the slot empty. */
@@ -103,6 +124,9 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
   /* The heart pulses on the way in; reset it when the video changes. */
   useEffect(() => setLiked(false), [currentId]);
 
+  /* New video, new timeline. */
+  useEffect(() => { setTime(0); setLength(0); }, [currentId]);
+
   const onLike = () => {
     if (!currentId) return;
     toggleFavorite(currentId);
@@ -122,7 +146,17 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
     setMuted(el.muted);
   };
 
-  const duration = currentId ? videoMeta[currentId]?.duration : undefined;
+  const seek = (to: number) => {
+    const el = videoRef.current;
+    if (!el || !Number.isFinite(el.duration)) return;
+    el.currentTime = Math.max(0, Math.min(el.duration, to));
+    setTime(el.currentTime);
+  };
+
+  /* The element's own duration once loaded; the library's cached value only
+     until then, so the scrubber is not stuck at 0 on the first frame. */
+  const duration = length || (currentId ? videoMeta[currentId]?.duration ?? 0 : 0);
+  const progress = duration > 0 ? (time / duration) * 100 : 0;
 
   return (
     <div
@@ -145,10 +179,14 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
             muted={muted}
             playsInline
             preload="auto"
-            className="h-full w-full object-cover"
+            className={`h-full w-full ${fit === 'cover' ? 'object-cover' : 'object-contain'}`}
             onClick={togglePlay}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
+            onLoadedMetadata={() => setLength(videoRef.current?.duration ?? 0)}
+            /* While dragging the range input the element keeps firing
+               timeupdate at the old position and would fight the thumb. */
+            onTimeUpdate={() => { if (!scrubbing) setTime(videoRef.current?.currentTime ?? 0); }}
             /* The feed itself: roll straight into the next random pick. */
             onEnded={next}
             /* A codec the browser cannot decode would otherwise freeze the
@@ -164,8 +202,11 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
           </div>
         )}
 
-        {/* ── Right rail: like / skip / sound ── */}
-        <div className="absolute bottom-3 right-2 flex flex-col items-center gap-3">
+        {/* ── Right rail: like / skip / sound ──
+             z-20 keeps it above the paused-state Play overlay, which spans
+             the whole frame: without it the overlay swallows every click on
+             these controls exactly when the video is paused. */}
+        <div className="absolute bottom-3 right-2 z-30 flex flex-col items-center gap-3">
           <RailBtn
             label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
             onClick={onLike}
@@ -177,8 +218,19 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
               } ${liked ? 'scale-125' : 'scale-100'}`}
             />
           </RailBtn>
+          <RailBtn label="Previous short" onClick={prev} disabled={!canGoBack}>
+            <SkipBack className="h-5 w-5 text-white" />
+          </RailBtn>
           <RailBtn label="Next short" onClick={next}>
             <SkipForward className="h-5 w-5 text-white" />
+          </RailBtn>
+          <RailBtn
+            label={fit === 'cover' ? 'Show original aspect ratio' : 'Fill vertical frame'}
+            onClick={() => setFit(fit === 'cover' ? 'contain' : 'cover')}
+          >
+            {fit === 'cover'
+              ? <Minimize2 className="h-5 w-5 text-white" />
+              : <Maximize2 className="h-5 w-5 text-primary" />}
           </RailBtn>
           <RailBtn label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute} disabled={!src}>
             {muted ? <VolumeX className="h-5 w-5 text-white" /> : <Volume2 className="h-5 w-5 text-primary" />}
@@ -198,25 +250,55 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
           </button>
         )}
 
-        {/* ── Caption ── */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-8">
-          <p className="truncate pr-12 text-[12px] font-semibold text-white/95">
+        {/* ── Caption + timeline ──
+             pointer-events-none on the layer, restored on the scrubber alone:
+             the gradient spans the full width and would otherwise sit over
+             the rail's lowest buttons (mute, aspect) and swallow their
+             clicks. Text padding does not help — `pr-14` insets the glyphs,
+             not the element's hit box. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 to-transparent px-3 pb-2 pt-8">
+          <p className="truncate pr-14 text-[12px] font-semibold text-white/95">
             {item?.title ?? '—'}
           </p>
-          <p className="truncate pr-12 text-[10px] text-white/55">
-            {item?.rootFolderName}
-            {duration ? ` · ${Math.round(duration)}s` : ''}
-          </p>
+          <p className="truncate pr-14 text-[10px] text-white/55">{item?.rootFolderName}</p>
+
+          {/*
+            A real <input type="range"> rather than a div: it gets keyboard
+            seeking (arrows/Home/End) and pointer capture for free, which a
+            click-to-seek bar would each have to reimplement.
+          */}
+          <div className="pointer-events-auto mt-1.5 flex items-center gap-2 pr-12">
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={0.1}
+              value={Math.min(time, duration || 0)}
+              disabled={!src || !duration}
+              onPointerDown={() => setScrubbing(true)}
+              onPointerUp={() => setScrubbing(false)}
+              onKeyDown={(e) => e.stopPropagation()}
+              onChange={(e) => { setTime(+e.target.value); seek(+e.target.value); }}
+              aria-label="Seek"
+              className="shorts-range h-1 w-full cursor-pointer appearance-none rounded-full bg-white/25 disabled:cursor-default"
+              style={{ backgroundImage: `linear-gradient(to right, rgb(var(--color-primary)) ${progress}%, transparent ${progress}%)` }}
+            />
+            <span className="shrink-0 text-[10px] tabular-nums text-white/70">
+              {formatDuration(time)} / {formatDuration(duration || 0)}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* ── Slot chrome: drag to swap, reshuffle, remove ── */}
+      {/* ── Slot chrome: drag to swap, reshuffle, remove ──
+           In the drawer the panel header owns source + close, so this shrinks
+           to just the reshuffle affordance. */}
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 transition-opacity ${
+        className={`pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 transition-opacity ${
           hovered ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <span
+        {!isPanel && <span
           draggable
           onDragStart={(e) => {
             e.dataTransfer.setData(DND_SLOT, String(slot));
@@ -226,7 +308,7 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
           title="Drag to swap slot"
         >
           <GripVertical className="h-4 w-4" />
-        </span>
+        </span>}
         <span className="flex items-center gap-1 rounded bg-primary/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
           <Zap className="h-3 w-3" />
           Shorts
@@ -242,14 +324,16 @@ export default function ShortsPlayer({ slot, sentinel, onRegister }: Props) {
         >
           <Shuffle className="h-3.5 w-3.5" />
         </button>
-        <button
-          onClick={() => removeFromLayout(slot)}
-          className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/80 transition hover:bg-primary hover:text-white"
-          aria-label="Remove feed from layout"
-          title="Remove"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        {!isPanel && (
+          <button
+            onClick={() => removeFromLayout(slot)}
+            className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/80 transition hover:bg-primary hover:text-white"
+            aria-label="Remove feed from layout"
+            title="Remove"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Pause hint for the master bar's benefit — keeps parity with MediaTile. */}

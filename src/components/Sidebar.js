@@ -2,7 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useState, useMemo } from 'react';
 import { Home, Film, Image as ImageIcon, Library, Folder, FolderOpen, ChevronRight, Clock, PlayCircle, Heart, ListMusic, Plus, Trash2, Lock, LockOpen, ShieldCheck, Zap, } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { startShortsFeed, isShortsSlot } from '../store/useShortsStore';
+import { useShortsStore } from '../store/useShortsStore';
 import { useVaultStore } from '../store/useVaultStore';
 export default function Sidebar({ onOpenVault }) {
     const currentFolderPath = useStore((s) => s.currentFolderPath);
@@ -70,17 +70,15 @@ function VaultNavItem({ onOpenVault }) {
     return (_jsxs("div", { className: `group relative mb-0.5 flex w-full items-center rounded-xl text-sm transition-all duration-200 ${active ? 'bg-primary/[0.12] font-semibold text-content' : 'font-medium text-content/65 hover:bg-content/[0.05] hover:text-content'}`, children: [active && _jsx(ActiveBar, {}), _jsxs("button", { onClick: () => setCollection({ type: 'vault' }), className: "flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 pr-1", children: [_jsx(LockOpen, { className: `h-[18px] w-[18px] shrink-0 ${active ? 'text-primary' : 'text-emerald-400'}` }), _jsx("span", { className: "min-w-0 flex-1 truncate text-left", children: "Private Vault" }), _jsx("span", { className: `rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${active ? 'bg-primary/20 text-primary' : 'text-content/30'}`, children: count })] }), _jsx("button", { onClick: () => lock(), className: "mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content/40 transition hover:bg-content/10 hover:text-content", "aria-label": "Lock the vault now", title: "Lock now", children: _jsx(ShieldCheck, { className: "h-3.5 w-3.5" }) })] }));
 }
 /* ─── Shorts ───
- *  Not a view of its own: it reshapes the multi-media grid into a wall of
- *  9:16 feeds and starts them. That keeps Shorts composable with everything
- *  else — the user can drop a normal video into one of the columns, or
- *  reshape the grid, without leaving any special mode.
+ *  Opens the right-hand drawer rather than reshaping the grid: the point is
+ *  to watch shorts NEXT TO whatever is already playing, so this must not
+ *  disturb the main column at all.
  */
 function ShortsNavItem() {
-    const layoutMode = useStore((s) => s.layoutMode);
-    const activeMedia = useStore((s) => s.activeMedia);
+    const open = useShortsStore((s) => s.isShortsPanelOpen);
+    const toggleShortsPanel = useShortsStore((s) => s.toggleShortsPanel);
     const videoCount = useStore((s) => s.videos.filter((v) => v.mediaType === 'video').length);
-    const active = layoutMode && activeMedia.some((id) => isShortsSlot(id));
-    return (_jsx(NavItem, { icon: _jsx(Zap, { className: `h-[18px] w-[18px] ${active ? 'fill-current' : ''}` }), label: "Shorts", count: videoCount, active: active, onClick: () => startShortsFeed('wall') }));
+    return (_jsx(NavItem, { icon: _jsx(Zap, { className: `h-[18px] w-[18px] ${open ? 'fill-current' : ''}` }), label: "Shorts", count: videoCount, active: open, onClick: toggleShortsPanel }));
 }
 /* ─── Section label ─── */
 function SectionLabel({ children, icon }) {
