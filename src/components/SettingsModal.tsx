@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Download, Upload, Database, AlertTriangle, Check, Heart, ListMusic, Tag, EyeOff, Keyboard, Palette } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import ThemePicker from './ThemeSwitcher';
-import { useSettingsStore, type StealthStyle } from '../store/useSettingsStore';
+import { useSettingsStore, type StealthStyle, type ResourceMode } from '../store/useSettingsStore';
 import { comboFromEvent, formatCombo, heldModifiers, validateCombo, type Combo } from '../utils/shortcutUtils';
 import { exportUserData, importUserData } from '../utils/backupUtils';
 
@@ -98,6 +98,10 @@ export default function SettingsModal({ open, onClose }: Props) {
 
           <div className="my-6 h-px bg-content/10" />
 
+          <ResourceModeSettings />
+
+          <div className="my-6 h-px bg-content/10" />
+
           <h3 className="text-sm font-semibold text-content">Data Management</h3>
           <p className="mt-1 text-xs text-content/50">
             Your favorites, playlists, tags, theme and watch progress live only in this browser.
@@ -164,6 +168,56 @@ export default function SettingsModal({ open, onClose }: Props) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+ *  RESOURCE MODE
+ * ───────────────────────────────────────────────────────────── */
+
+function ResourceModeSettings() {
+  const mode = useSettingsStore((s) => s.resourceMode);
+  const setMode = useSettingsStore((s) => s.setResourceMode);
+
+  const options: { id: ResourceMode; title: string; blurb: string }[] = [
+    {
+      id: 'save-ram',
+      title: 'Save memory',
+      blurb: 'Keeps ~150 thumbnails decoded and extracts 10 at a time. Best on laptops and big libraries.',
+    },
+    {
+      id: 'performance',
+      title: 'Performance',
+      blurb: 'Keeps ~1,000 thumbnails so scrolling back is instant, and extracts 24 at a time. Uses more memory.',
+    },
+  ];
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-content">Thumbnails</h3>
+      <p className="mt-1 text-xs text-content/50">
+        How hard LocalTube may work while building previews. Takes effect immediately.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => setMode(o.id)}
+            className={`rounded-xl border p-3 text-left transition ${
+              mode === o.id
+                ? 'border-primary/60 bg-primary/10'
+                : 'border-content/10 bg-content/[0.03] hover:border-content/25'
+            }`}
+          >
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-content">
+              {o.title}
+              {mode === o.id && <Check className="h-3.5 w-3.5 text-primary" strokeWidth={3} />}
+            </span>
+            <span className="mt-1 block text-[11px] leading-relaxed text-content/55">{o.blurb}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

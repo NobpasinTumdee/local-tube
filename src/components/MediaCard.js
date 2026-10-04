@@ -184,9 +184,15 @@ function MediaCard({ video }) {
             const file = await video.handle.getFile();
             if (signal.aborted)
                 return;
+            /* Pass 1 lands here: the blurred frame goes straight into the store, so
+               the card swaps shimmer for content before the full encode finishes. */
+            const onPreview = (lqipUrl) => {
+                if (!signal.aborted)
+                    setVideoMeta(video.id, { lqipUrl });
+            };
             const result = isImage
-                ? await thumbnailQueue.run(() => generateImageThumbnail(file, { signal }), signal)
-                : await thumbnailQueue.run(() => generateThumbnail(file, { signal }), signal);
+                ? await thumbnailQueue.run(() => generateImageThumbnail(file, { signal, onPreview }), signal)
+                : await thumbnailQueue.run(() => generateThumbnail(file, { signal, onPreview }), signal);
             if (signal.aborted) {
                 /* Finished just as we were cancelled — nobody will ever show it. */
                 URL.revokeObjectURL(result.url);
@@ -194,6 +200,7 @@ function MediaCard({ video }) {
             }
             setVideoMeta(video.id, {
                 thumbnailUrl: result.url,
+                lqipUrl: result.lqipUrl,
                 duration: result.duration,
                 width: result.width,
                 height: result.height,
@@ -273,6 +280,7 @@ function MediaCard({ video }) {
     };
     const onMouseLeave = () => stopPreview();
     const thumb = meta?.thumbnailUrl;
+    const lqip = meta?.lqipUrl;
     const dur = meta?.duration;
     /* ── Uniform aspect ratio from display preference (media fills via object-cover) ── */
     const w = meta?.width ?? imgDims?.w;
@@ -304,7 +312,11 @@ function MediaCard({ video }) {
      * assume so the scrollbar does not jump as tiles come and go.
      */
     if (!inView) {
-        return (_jsx("div", { ref: cardRef, style: { contentVisibility: 'auto', containIntrinsicSize: '320px' }, children: _jsx(SkeletonTile, {}) }));
+        return (_jsx("div", { ref: cardRef, style: { contentVisibility: 'auto', containIntrinsicSize: '320px' }, children: lqip ? (
+            /* Already seen once: keep the blur rather than regressing to a
+               shimmer. A 16px JPEG costs well under a kilobyte decoded, so
+               doing this for every off-screen card is still nothing. */
+            _jsx("div", { className: `relative overflow-hidden rounded-2xl bg-content/[0.04] ring-1 ring-content/[0.06] ${aspectClass}`, children: _jsx("img", { src: lqip, alt: "", "aria-hidden": "true", className: "h-full w-full scale-110 object-cover opacity-70 blur-xl" }) })) : (_jsx(SkeletonTile, {})) }));
     }
     return (_jsxs("div", { ref: cardRef, className: "group cursor-pointer outline-none", onClick: handleClick, onMouseEnter: onMouseEnter, onMouseLeave: onMouseLeave, 
         /* Videos and images are both draggable onto a specific grid slot */
@@ -313,16 +325,15 @@ function MediaCard({ video }) {
                 e.dataTransfer.setData(DND_MEDIA_ID, video.id);
                 e.dataTransfer.effectAllowed = 'copy';
             }
-            : undefined, children: [_jsxs("div", { className: `relative overflow-hidden rounded-2xl bg-content/[0.04] shadow-lg shadow-black/20 ring-1 ring-content/[0.06] transition-all duration-300 ease-out will-change-transform group-hover:-translate-y-1 group-hover:scale-[1.03] group-hover:shadow-2xl group-hover:shadow-black/40 group-hover:ring-primary/30 ${aspectClass}`, children: [thumb ? (_jsx("img", { src: thumb, alt: video.title, onLoad: (e) => {
+            : undefined, children: [_jsxs("div", { className: `relative overflow-hidden rounded-2xl bg-content/[0.04] shadow-lg shadow-black/20 ring-1 ring-content/[0.06] transition-all duration-300 ease-out will-change-transform group-hover:-translate-y-1 group-hover:scale-[1.03] group-hover:shadow-2xl group-hover:shadow-black/40 group-hover:ring-primary/30 ${aspectClass}`, children: [lqip && (_jsx("img", { src: lqip, alt: "", "aria-hidden": "true", className: `absolute inset-0 h-full w-full scale-110 object-cover blur-xl transition-opacity duration-500 ${thumb ? 'opacity-0' : 'opacity-70'}` })), thumb ? (_jsx("img", { src: thumb, alt: video.title, onLoad: (e) => {
                             if (isImage && !imgDims) {
                                 const t = e.currentTarget;
                                 if (t.naturalWidth)
                                     setImgDims({ w: t.naturalWidth, h: t.naturalHeight });
                             }
-                        }, className: `h-full w-full object-cover transition-transform duration-500 ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : failed ? (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: _jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 }) })) : (
-                    /* Visible, extraction in flight: the shimmer reads as "coming",
-                       where a spinner on every tile reads as "stuck". `bare` because
-                       the card draws its own title rows below. */
+                        }, className: `relative h-full w-full object-cover opacity-100 transition-opacity duration-300 ${previewUrl ? 'opacity-0' : ''}`, loading: "lazy" })) : failed ? (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: _jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 }) })) : lqip ? null : (
+                    /* Nothing to show yet. Once the blurred frame arrives it takes over,
+                       so the shimmer only covers the gap before the first decode. */
                     _jsx("div", { className: "absolute inset-0", children: _jsx(SkeletonTile, { active: true, bare: true, fill: true }) })), previewUrl && (_jsx("video", { ref: previewVideoRef, src: previewUrl, autoPlay: true, muted: previewMuted, loop: true, playsInline: true, className: "absolute inset-0 h-full w-full bg-black object-cover", onCanPlay: () => {
                             const el = previewVideoRef.current;
                             if (el)

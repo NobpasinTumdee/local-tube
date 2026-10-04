@@ -1,3 +1,4 @@
+import { useSettingsStore, RESOURCE_LIMITS, resourceLimits } from '../store/useSettingsStore';
 /* ─────────────────────────────────────────────────────────────
  *  THUMBNAIL EXTRACTION
  * ─────────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@
  * that may be hundreds of MB, and the gap between the two was inside the
  * run-to-run noise.
  */
-const CONCURRENCY = 10;
+const CONCURRENCY = RESOURCE_LIMITS['save-ram'].concurrency;
 const THUMB_MAX_WIDTH = 480;
 /**
  * JPEG, not WebP. Measured on the same canvas, alternating formats, warm-up
@@ -63,6 +64,17 @@ const THUMB_MAX_WIDTH = 480;
  */
 const THUMB_TYPE = 'image/jpeg';
 const THUMB_QUALITY = 0.72;
+/**
+ * Low-quality placeholder: a 16px-wide JPEG as a data: URL, ~1KB.
+ *
+ * A data: URL on purpose, unlike the full thumbnail. It is small enough that
+ * holding one per file costs ~200KB across a 200-file library, and because it
+ * is not a blob it survives LRU eviction of the real thumbnail — which is the
+ * point. When the cache drops a thumbnail and the user scrolls back, the card
+ * shows the blurred frame instantly instead of a shimmer.
+ */
+const LQIP_WIDTH = 16;
+const LQIP_QUALITY = 0.1;
 export const THUMBNAIL_CONCURRENCY = CONCURRENCY;
 export function isAbortError(err) {
     return err instanceof DOMException && err.name === 'AbortError';
@@ -81,14 +93,36 @@ function canvasToBlobUrl(canvas, quality) {
         canvas.toBlob((blob) => (blob ? resolve(URL.createObjectURL(blob)) : reject(new Error('Thumbnail encoding failed'))), THUMB_TYPE, quality);
     });
 }
-/** Grabs one frame from a video file. */
+/**
+ * Grabs one frame from a video file, emitting a blurred preview first.
+ *
+ * WHY ONE SEEK AND NOT TWO. The tempting design is to yield a preview from
+ * the untouched first frame on `loadeddata`, skipping the seek entirely, and
+ * only then seek for the real frame. Measured on this library, that does not
+ * work:
+ *
+ *   - Drawing at `loadeddata` produced a PURE BLACK canvas on 8 of 8 videos
+ *     (luminance 0 vs 88-99 after a seek). The frame is not composited yet,
+ *     so the "instant preview" is a black square.
+ *   - Waiting for a genuinely decoded first frame via requestVideoFrameCallback
+ *     took 639-1618ms — an order of magnitude worse than seeking.
+ *   - A seek is cheap: 41ms median to 1.0s, and seeking to 0.1s instead was
+ *     no faster (54ms median), with no black frames at either target.
+ *
+ * So a frame costs one seek no matter what, and a second pass would double
+ * the pipeline's dominant cost to show a blur ~30ms sooner. Instead both
+ * images come off the SAME decoded frame: the 16px preview is encoded and
+ * handed over first (~1-3ms), then the full one. The preview still earns its
+ * keep — it outlives the LRU, so a card scrolled back to is never blank.
+ */
 export async function generateThumbnail(file, 
 /*
  * seekTime stays at 1.0s. Seeking anywhere means decoding forward from the
  * preceding keyframe, so early is cheap and deep is expensive; 1.0s is far
- * enough in to clear the black frame most recordings open on.
+ * enough in to clear the black frame most recordings open on, and measured
+ * no slower than 0.1s.
  */
-{ seekTime = 1.0, quality = THUMB_QUALITY, maxWidth = THUMB_MAX_WIDTH, signal } = {}) {
+{ seekTime = 1.0, quality = THUMB_QUALITY, maxWidth = THUMB_MAX_WIDTH, signal, onPreview } = {}) {
     throwIfAborted(signal);
     const url = URL.createObjectURL(file);
     const video = document.createElement('video');
@@ -104,6 +138,26 @@ export async function generateThumbnail(file,
         throwIfAborted(signal);
         const srcW = video.videoWidth || maxWidth;
         const srcH = video.videoHeight || Math.round((maxWidth * 9) / 16);
+        /* ── Pass 1: the blur, straight away ── */
+        let lqipUrl;
+        if (onPreview) {
+            const lw = LQIP_WIDTH;
+            const lh = Math.max(1, Math.round(srcH * (lw / srcW)));
+            const lqipCanvas = document.createElement('canvas');
+            lqipCanvas.width = lw;
+            lqipCanvas.height = lh;
+            const lctx = lqipCanvas.getContext('2d');
+            if (lctx) {
+                lctx.drawImage(video, 0, 0, lw, lh);
+                /* toDataURL, not toBlob: at this size base64 is ~1KB and synchronous,
+                   where toBlob would hand the preview over a task later — the exact
+                   delay this is meant to remove. */
+                lqipUrl = lqipCanvas.toDataURL('image/jpeg', LQIP_QUALITY);
+                if (!signal?.aborted)
+                    onPreview(lqipUrl);
+            }
+        }
+        /* ── Pass 2: the real thing ── */
         const w = Math.min(srcW, maxWidth);
         const h = Math.round(srcH * (w / srcW));
         const canvas = document.createElement('canvas');
@@ -113,8 +167,10 @@ export async function generateThumbnail(file,
         if (!ctx)
             throw new Error('2D canvas unavailable');
         ctx.drawImage(video, 0, 0, w, h);
+        throwIfAborted(signal);
         return {
             url: await canvasToBlobUrl(canvas, quality),
+            lqipUrl,
             duration: video.duration,
             width: srcW,
             height: srcH,
@@ -135,7 +191,7 @@ export async function generateThumbnail(file,
  * a folder of large photos from stuttering the scroll; the <img> fallback
  * covers the rest.
  */
-export async function generateImageThumbnail(file, { quality = 0.8, maxWidth = THUMB_MAX_WIDTH, signal } = {}) {
+export async function generateImageThumbnail(file, { quality = 0.8, maxWidth = THUMB_MAX_WIDTH, signal, onPreview } = {}) {
     throwIfAborted(signal);
     const url = URL.createObjectURL(file);
     try {
@@ -160,6 +216,21 @@ export async function generateImageThumbnail(file, { quality = 0.8, maxWidth = T
         }
         const w = Math.min(srcW || maxWidth, maxWidth);
         const h = Math.round((srcH || maxWidth) * (w / (srcW || maxWidth)));
+        let lqipUrl;
+        if (onPreview) {
+            const lw = LQIP_WIDTH;
+            const lh = Math.max(1, Math.round((srcH || maxWidth) * (lw / (srcW || maxWidth))));
+            const lc = document.createElement('canvas');
+            lc.width = lw;
+            lc.height = lh;
+            const lctx = lc.getContext('2d');
+            if (lctx) {
+                lctx.drawImage(source, 0, 0, lw, lh);
+                lqipUrl = lc.toDataURL('image/jpeg', LQIP_QUALITY);
+                if (!signal?.aborted)
+                    onPreview(lqipUrl);
+            }
+        }
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
@@ -168,7 +239,7 @@ export async function generateImageThumbnail(file, { quality = 0.8, maxWidth = T
             throw new Error('2D canvas unavailable');
         ctx.drawImage(source, 0, 0, w, h);
         bitmap?.close();
-        return { url: await canvasToBlobUrl(canvas, quality), width: srcW, height: srcH };
+        return { url: await canvasToBlobUrl(canvas, quality), lqipUrl, width: srcW, height: srcH };
     }
     finally {
         URL.revokeObjectURL(url);
@@ -214,6 +285,23 @@ export class ThumbnailQueue {
             value: []
         });
     }
+    /**
+     * Resizes the gate while it is running — the resource-mode toggle changes
+     * this mid-session. Raising it admits the waiters that the old ceiling was
+     * holding back, so the change takes effect on the current screen rather
+     * than only on the next scroll.
+     */
+    setConcurrency(n) {
+        const next = Math.max(1, Math.round(n));
+        if (next === this.concurrency)
+            return;
+        this.concurrency = next;
+        while (this.active < this.concurrency && this.waiting.length)
+            this.next();
+    }
+    get limit() {
+        return this.concurrency;
+    }
     get pending() {
         return this.waiting.length;
     }
@@ -258,3 +346,9 @@ export class ThumbnailQueue {
     }
 }
 export const thumbnailQueue = new ThumbnailQueue();
+/* Keep the live gate in step with the user's resource mode. Subscribed here
+   rather than in a component so it applies even with no grid mounted. */
+useSettingsStore.subscribe((s) => {
+    thumbnailQueue.setConcurrency(RESOURCE_LIMITS[s.resourceMode].concurrency);
+});
+thumbnailQueue.setConcurrency(resourceLimits().concurrency);

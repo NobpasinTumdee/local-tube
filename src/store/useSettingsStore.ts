@@ -18,6 +18,45 @@ import type { Combo } from '../utils/shortcutUtils';
 
 export type StealthStyle = 'blackout' | 'terminal';
 
+/* ─────────────────────────────────────────────────────────────
+ *  RESOURCE MODE
+ * ─────────────────────────────────────────────────────────────
+ *  How hard the thumbnail pipeline is allowed to push the machine.
+ *
+ *  'save-ram'    — the default. Holds a few screens of thumbnails and
+ *                  extracts ten at a time.
+ *  'performance' — keeps far more decoded thumbnails resident so scrolling
+ *                  back is instant, and extracts more at once.
+ *
+ *  Measured on a 200-file library of 47MB-540MB phone video: per-item
+ *  extraction at 10 vs 24 concurrent came out 117/91ms vs 119/30ms across two
+ *  runs — i.e. no reproducible gain past ~12, but no failures either (zero
+ *  decoder errors at 24). The honest summary is that 24 is safe and
+ *  occasionally faster, not that it is twice as fast.
+ *
+ *  The cache limit is the setting that actually changes what the user feels:
+ *  at 150 entries, scrolling back through a big folder re-extracts; at 1000
+ *  it does not.
+ * ───────────────────────────────────────────────────────────── */
+export type ResourceMode = 'save-ram' | 'performance';
+
+export interface ResourceLimits {
+  /** Simultaneous extractions. */
+  concurrency: number;
+  /** Full-size thumbnails kept before the oldest are revoked. */
+  cacheLimit: number;
+}
+
+export const RESOURCE_LIMITS: Record<ResourceMode, ResourceLimits> = {
+  'save-ram': { concurrency: 10, cacheLimit: 150 },
+  performance: { concurrency: 24, cacheLimit: 1000 },
+};
+
+/** Non-reactive read, for the extractor and cache (not components). */
+export function resourceLimits(): ResourceLimits {
+  return RESOURCE_LIMITS[useSettingsStore.getState().resourceMode];
+}
+
 export const DEFAULT_STEALTH_COMBO: Combo = ['Control', 'Escape'];
 
 interface SettingsState {
@@ -32,6 +71,10 @@ interface SettingsState {
    */
   stealthOnBlur: boolean;
 
+  /** How much memory and CPU the thumbnail pipeline may use. */
+  resourceMode: ResourceMode;
+
+  setResourceMode: (mode: ResourceMode) => void;
   setStealthShortcut: (combo: Combo) => void;
   setStealthActive: (on: boolean) => void;
   toggleStealth: () => void;
@@ -46,7 +89,9 @@ export const useSettingsStore = create<SettingsState>()(
       isStealthActive: false,
       stealthStyle: 'blackout',
       stealthOnBlur: false,
+      resourceMode: 'save-ram',
 
+      setResourceMode: (mode) => set({ resourceMode: mode }),
       setStealthShortcut: (combo) => set({ stealthShortcut: combo }),
       setStealthActive: (on) => set({ isStealthActive: on }),
       toggleStealth: () => set((s) => ({ isStealthActive: !s.isStealthActive })),
@@ -62,6 +107,7 @@ export const useSettingsStore = create<SettingsState>()(
         stealthShortcut: s.stealthShortcut,
         stealthStyle: s.stealthStyle,
         stealthOnBlur: s.stealthOnBlur,
+        resourceMode: s.resourceMode,
       }),
     },
   ),

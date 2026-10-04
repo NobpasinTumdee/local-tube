@@ -206,9 +206,14 @@ function MediaCard({ video }: Props) {
     try {
       const file = await video.handle.getFile();
       if (signal.aborted) return;
+      /* Pass 1 lands here: the blurred frame goes straight into the store, so
+         the card swaps shimmer for content before the full encode finishes. */
+      const onPreview = (lqipUrl: string) => {
+        if (!signal.aborted) setVideoMeta(video.id, { lqipUrl });
+      };
       const result = isImage
-        ? await thumbnailQueue.run(() => generateImageThumbnail(file, { signal }), signal)
-        : await thumbnailQueue.run(() => generateThumbnail(file, { signal }), signal);
+        ? await thumbnailQueue.run(() => generateImageThumbnail(file, { signal, onPreview }), signal)
+        : await thumbnailQueue.run(() => generateThumbnail(file, { signal, onPreview }), signal);
 
       if (signal.aborted) {
         /* Finished just as we were cancelled — nobody will ever show it. */
@@ -217,6 +222,7 @@ function MediaCard({ video }: Props) {
       }
       setVideoMeta(video.id, {
         thumbnailUrl: result.url,
+        lqipUrl: result.lqipUrl,
         duration: result.duration,
         width: result.width,
         height: result.height,
@@ -292,6 +298,7 @@ function MediaCard({ video }: Props) {
   const onMouseLeave = () => stopPreview();
 
   const thumb = meta?.thumbnailUrl;
+  const lqip = meta?.lqipUrl;
   const dur = meta?.duration;
 
   /* ── Uniform aspect ratio from display preference (media fills via object-cover) ── */
@@ -325,7 +332,16 @@ function MediaCard({ video }: Props) {
   if (!inView) {
     return (
       <div ref={cardRef} style={{ contentVisibility: 'auto', containIntrinsicSize: '320px' }}>
-        <SkeletonTile />
+        {lqip ? (
+          /* Already seen once: keep the blur rather than regressing to a
+             shimmer. A 16px JPEG costs well under a kilobyte decoded, so
+             doing this for every off-screen card is still nothing. */
+          <div className={`relative overflow-hidden rounded-2xl bg-content/[0.04] ring-1 ring-content/[0.06] ${aspectClass}`}>
+            <img src={lqip} alt="" aria-hidden="true" className="h-full w-full scale-110 object-cover opacity-70 blur-xl" />
+          </div>
+        ) : (
+          <SkeletonTile />
+        )}
       </div>
     );
   }
@@ -352,6 +368,25 @@ function MediaCard({ video }: Props) {
       <div
         className={`relative overflow-hidden rounded-2xl bg-content/[0.04] shadow-lg shadow-black/20 ring-1 ring-content/[0.06] transition-all duration-300 ease-out will-change-transform group-hover:-translate-y-1 group-hover:scale-[1.03] group-hover:shadow-2xl group-hover:shadow-black/40 group-hover:ring-primary/30 ${aspectClass}`}
       >
+        {/*
+          Blur-up. The preview sits underneath permanently rather than being
+          swapped out: it is already decoded, it costs nothing to leave there,
+          and if the LRU later drops the full thumbnail this card degrades to a
+          blur instead of going blank.
+
+          scale-110 hides the transparent fringe blur-xl leaves at the edges.
+        */}
+        {lqip && (
+          <img
+            src={lqip}
+            alt=""
+            aria-hidden="true"
+            className={`absolute inset-0 h-full w-full scale-110 object-cover blur-xl transition-opacity duration-500 ${
+              thumb ? 'opacity-0' : 'opacity-70'
+            }`}
+          />
+        )}
+
         {thumb ? (
           <img
             src={thumb}
@@ -362,17 +397,16 @@ function MediaCard({ video }: Props) {
                 if (t.naturalWidth) setImgDims({ w: t.naturalWidth, h: t.naturalHeight });
               }
             }}
-            className={`h-full w-full object-cover transition-transform duration-500 ${previewUrl ? 'opacity-0' : 'opacity-100'}`}
+            className={`relative h-full w-full object-cover opacity-100 transition-opacity duration-300 ${previewUrl ? 'opacity-0' : ''}`}
             loading="lazy"
           />
         ) : failed ? (
           <div className="flex h-full w-full items-center justify-center">
             <PlaySquare className="h-10 w-10 text-content/10" strokeWidth={1.5} />
           </div>
-        ) : (
-          /* Visible, extraction in flight: the shimmer reads as "coming",
-             where a spinner on every tile reads as "stuck". `bare` because
-             the card draws its own title rows below. */
+        ) : lqip ? null : (
+          /* Nothing to show yet. Once the blurred frame arrives it takes over,
+             so the shimmer only covers the gap before the first decode. */
           <div className="absolute inset-0">
             <SkeletonTile active bare fill />
           </div>

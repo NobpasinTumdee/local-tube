@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore';
+import { resourceLimits } from '../store/useSettingsStore';
 
 /* ─────────────────────────────────────────────────────────────
  *  THUMBNAIL LRU
@@ -17,8 +18,12 @@ import { useStore } from '../store/useStore';
  *  10,000-file library using the same memory as a 100-file one.
  * ───────────────────────────────────────────────────────────── */
 
-/** Roughly a few screens' worth at any grid density. */
-const MAX_ENTRIES = 150;
+/**
+ * Comes from the resource mode: 150 in 'save-ram', 1000 in 'performance'.
+ * Read per call rather than captured, so flipping the mode takes effect on
+ * the next write instead of after a reload.
+ */
+const maxEntries = () => resourceLimits().cacheLimit;
 
 /** Insertion order = recency; Map preserves it, so the oldest key is first. */
 const order = new Map<string, string>();
@@ -39,15 +44,18 @@ export function touchThumbnail(mediaId: string): void {
 }
 
 function evictExcess(): void {
-  if (order.size <= MAX_ENTRIES) return;
+  const limit = maxEntries();
+  if (order.size <= limit) return;
 
   const { videoMeta, setVideoMeta } = useStore.getState();
   for (const [id, url] of order) {
-    if (order.size <= MAX_ENTRIES) break;
+    if (order.size <= limit) break;
     order.delete(id);
     /*
-     * Only revoke what this cache minted. A URL the store has since replaced
-     * (re-scan, a newer extraction) belongs to someone else.
+     * Only the full thumbnail is dropped. `lqipUrl` is a ~1KB data: URL and
+     * stays — that is what lets an evicted card come back as a blurred frame
+     * instead of an empty box, and it is why the smaller cache limit is not
+     * something the user sees.
      */
     if (videoMeta[id]?.thumbnailUrl === url) {
       setVideoMeta(id, { thumbnailUrl: undefined });

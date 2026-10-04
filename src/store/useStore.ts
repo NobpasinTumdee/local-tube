@@ -107,6 +107,8 @@ export const normalizeTag = (raw: string) => raw.trim().replace(/^#+/, '').repla
 
 export interface VideoMeta {
   thumbnailUrl?: string;
+  /** 16px blurred preview (data: URL). Survives thumbnail eviction. */
+  lqipUrl?: string;
   duration?: number;
   /** Source pixel dimensions (video frame or image), when known. */
   width?: number;
