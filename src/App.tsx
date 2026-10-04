@@ -16,6 +16,7 @@ import { useVaultHiddenIds, useVaultSession } from './hooks/useVaultGuard';
 import { useVaultStore } from './store/useVaultStore';
 import { useIsPoppedOut } from './hooks/useDocumentPiP';
 import { useShortsPanelInset } from './store/useShortsStore';
+import { useScrollMemory } from './hooks/useScrollMemory';
 import RightShortsPanel from './components/RightShortsPanel';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
@@ -80,6 +81,22 @@ export default function App() {
      watch-party room being popped out must leave the library alone. */
   const gridPoppedOut = useIsPoppedOut('grid');
   const shortsInset = useShortsPanelInset();
+
+  /*
+   * Library scroll memory. The key identifies WHICH list is on screen, so a
+   * different folder, collection, filter or search starts at the top while
+   * returning from a video does not. `enabled` has to mirror the `showHome`
+   * condition below — it cannot read it, because that is computed after this
+   * component's early returns and hooks may not run conditionally.
+   */
+  const collectionKey = useStore((s) =>
+    s.collection.type === 'playlist' ? `playlist:${s.collection.playlistId}` : s.collection.type,
+  );
+  const hasWorkspace = activeHandles.length > 0 || pendingRestore.length > 0;
+  useScrollMemory(
+    `${currentFolderPath}|${collectionKey}|${homeFilter}|${searchQuery}`,
+    hasWorkspace && (layoutMode || view === 'home' || playerMode === 'mini'),
+  );
 
   useEffect(() => {
     void hydrateWorkspace();

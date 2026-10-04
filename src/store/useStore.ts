@@ -316,6 +316,14 @@ interface StoreState {
   currentFolderPath: string;   // '' = root
   searchQuery: string;
   sidebarOpen: boolean;
+  /**
+   * Where the library was scrolled to, so closing a video returns the user to
+   * the row they left rather than the top of the list.
+   *
+   * Deliberately NOT persisted (see partialize): a scroll offset from a
+   * previous session describes a library that may no longer exist.
+   */
+  savedScrollPosition: number;
   view: View;
   homeFilter: HomeFilter;
   viewMode: ViewMode;
@@ -374,6 +382,7 @@ interface StoreState {
   setCurrentFolder: (path: string) => void;
   setSearchQuery: (q: string) => void;
   toggleSidebar: () => void;
+  setSavedScrollPosition: (pos: number) => void;
   setSidebarOpen: (open: boolean) => void;
   setHomeFilter: (f: HomeFilter) => void;
   setViewMode: (m: ViewMode) => void;
@@ -451,6 +460,7 @@ export const useStore = create<StoreState>()(
   currentFolderPath: '',
   searchQuery: '',
   sidebarOpen: true,
+  savedScrollPosition: 0,
   view: 'home',
   homeFilter: 'all',
   viewMode: 'nested',
@@ -572,6 +582,8 @@ export const useStore = create<StoreState>()(
   setCurrentFolder: (path) => set({ currentFolderPath: path, searchQuery: '', collection: { type: 'all' } }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+
+  setSavedScrollPosition: (pos) => set({ savedScrollPosition: Math.max(0, pos) }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHomeFilter: (f) => set({ homeFilter: f }),
   setViewMode: (m) => set({ viewMode: m }),
