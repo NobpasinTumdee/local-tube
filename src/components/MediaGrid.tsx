@@ -15,6 +15,15 @@ interface Props {
 /* Cap the cascade so large libraries don't animate for seconds. */
 const entryDelay = (i: number) => Math.min(i * 0.03, 0.4);
 
+/*
+ * Past this many items the entry choreography stops paying for itself.
+ * `layout` is the expensive half: Framer measures every participating element
+ * against its previous box on each commit, so a thousand cards means a
+ * thousand forced reflows for an animation nobody sees — the cards are
+ * off-screen placeholders anyway.
+ */
+const ANIMATION_BUDGET = 60;
+
 const matchesFilter = (v: MediaEntry, f: HomeFilter) =>
   f === 'all' || (f === 'videos' && v.mediaType === 'video') || (f === 'images' && v.mediaType === 'image');
 
@@ -72,17 +81,23 @@ export default function MediaGrid({ videos }: Props) {
           </div>
         ) : (
           <div className={`grid items-start gap-x-5 gap-y-9 ${gridColsClass}`} style={gridStyle}>
-            {videos.map((v, i) => (
-              <motion.div
-                layout
-                key={v.id}
-                initial={{ opacity: 0, y: 18 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }}
-              >
-                <MediaCard video={v} />
-              </motion.div>
-            ))}
+            {videos.map((v, i) =>
+              videos.length > ANIMATION_BUDGET ? (
+                <div key={v.id}>
+                  <MediaCard video={v} />
+                </div>
+              ) : (
+                <motion.div
+                  layout
+                  key={v.id}
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }}
+                >
+                  <MediaCard video={v} />
+                </motion.div>
+              ),
+            )}
           </div>
         )}
       </div>
@@ -201,17 +216,23 @@ export default function MediaGrid({ videos }: Props) {
                 </p>
               )}
               <div className={`grid items-start gap-x-5 gap-y-9 ${gridColsClass}`} style={gridStyle}>
-                {videos.map((v, i) => (
-                  <motion.div
-                    layout
-                    key={v.id}
-                    initial={{ opacity: 0, y: 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }}
-                  >
-                    <MediaCard video={v} />
-                  </motion.div>
-                ))}
+                {videos.map((v, i) =>
+                  videos.length > ANIMATION_BUDGET ? (
+                    <div key={v.id}>
+                      <MediaCard video={v} />
+                    </div>
+                  ) : (
+                    <motion.div
+                      layout
+                      key={v.id}
+                      initial={{ opacity: 0, y: 18 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }}
+                    >
+                      <MediaCard video={v} />
+                    </motion.div>
+                  ),
+                )}
               </div>
             </>
           )}

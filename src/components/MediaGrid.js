@@ -8,6 +8,14 @@ import { useStore } from '../store/useStore';
 import { getChildFolders, getAllFilesRecursively } from '../utils/directoryScanner';
 /* Cap the cascade so large libraries don't animate for seconds. */
 const entryDelay = (i) => Math.min(i * 0.03, 0.4);
+/*
+ * Past this many items the entry choreography stops paying for itself.
+ * `layout` is the expensive half: Framer measures every participating element
+ * against its previous box on each commit, so a thousand cards means a
+ * thousand forced reflows for an animation nobody sees — the cards are
+ * off-screen placeholders anyway.
+ */
+const ANIMATION_BUDGET = 60;
 const matchesFilter = (v, f) => f === 'all' || (f === 'videos' && v.mediaType === 'video') || (f === 'images' && v.mediaType === 'image');
 export default function MediaGrid({ videos }) {
     const currentFolderPath = useStore((s) => s.currentFolderPath);
@@ -34,7 +42,7 @@ export default function MediaGrid({ videos }) {
         const title = isFav ? 'Favorites' : playlist?.title ?? 'Playlist';
         return (_jsxs("div", { children: [_jsxs("div", { className: "mb-7 flex items-center gap-3", children: [_jsx("span", { className: "flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 text-primary", children: isFav ? _jsx(Heart, { className: "h-5 w-5 fill-current" }) : _jsx(ListMusic, { className: "h-5 w-5" }) }), _jsxs("div", { children: [_jsx("h1", { className: "text-xl font-bold tracking-tight text-content", children: title }), _jsxs("p", { className: "text-xs font-medium text-content/40", children: [videos.length, " item", videos.length !== 1 ? 's' : ''] })] })] }), videos.length === 0 ? (_jsxs("div", { className: "flex flex-col items-center justify-center gap-3 py-28 text-content/30", children: [isFav ? _jsx(Heart, { className: "h-14 w-14", strokeWidth: 1 }) : _jsx(ListMusic, { className: "h-14 w-14", strokeWidth: 1 }), _jsx("p", { className: "text-lg font-semibold text-content/50", children: isFav ? 'No favorites yet' : 'This playlist is empty' }), _jsx("p", { className: "text-sm", children: isFav
                                 ? 'Hover any video or image and tap the heart to save it here.'
-                                : 'Hover a card and use “+ Playlist” to add items.' })] })) : (_jsx("div", { className: `grid items-start gap-x-5 gap-y-9 ${gridColsClass}`, style: gridStyle, children: videos.map((v, i) => (_jsx(motion.div, { layout: true, initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(MediaCard, { video: v }) }, v.id))) }))] }));
+                                : 'Hover a card and use “+ Playlist” to add items.' })] })) : (_jsx("div", { className: `grid items-start gap-x-5 gap-y-9 ${gridColsClass}`, style: gridStyle, children: videos.map((v, i) => videos.length > ANIMATION_BUDGET ? (_jsx("div", { children: _jsx(MediaCard, { video: v }) }, v.id)) : (_jsx(motion.div, { layout: true, initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(MediaCard, { video: v }) }, v.id))) }))] }));
     }
     /* subfolders at the current level (only meaningful in nested mode) */
     const subfolders = viewMode === 'nested' && directoryTree
@@ -68,7 +76,7 @@ export default function MediaGrid({ videos }) {
                         if (rootFiles.length === 0)
                             return null;
                         return (_jsx(Shelf, { title: "In this folder", count: rootFiles.length, items: rootFiles.slice(0, 18), index: shelfNodes.length }));
-                    })()] })) : (_jsxs(_Fragment, { children: [viewMode === 'nested' && subfolders.length > 0 && (_jsxs("div", { className: "mb-9", children: [currentFolderPath === '' && _jsx(SectionTitle, { children: "Folders" }), _jsx("div", { className: "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", children: subfolders.map((folder, i) => (_jsx(motion.div, { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(FolderCard, { folder: folder, onClick: () => setCurrentFolder(folder.path) }) }, folder.path))) })] })), videos.length > 0 && (_jsxs(_Fragment, { children: [viewMode === 'nested' && subfolders.length > 0 && _jsx(SectionTitle, { children: "Files" }), viewMode === 'flat' && (_jsxs("p", { className: "mb-5 text-xs font-medium text-content/35", children: [videos.length, " file", videos.length !== 1 ? 's' : '', " \u00B7 including subfolders"] })), _jsx("div", { className: `grid items-start gap-x-5 gap-y-9 ${gridColsClass}`, style: gridStyle, children: videos.map((v, i) => (_jsx(motion.div, { layout: true, initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(MediaCard, { video: v }) }, v.id))) })] }))] }))] }));
+                    })()] })) : (_jsxs(_Fragment, { children: [viewMode === 'nested' && subfolders.length > 0 && (_jsxs("div", { className: "mb-9", children: [currentFolderPath === '' && _jsx(SectionTitle, { children: "Folders" }), _jsx("div", { className: "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", children: subfolders.map((folder, i) => (_jsx(motion.div, { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(FolderCard, { folder: folder, onClick: () => setCurrentFolder(folder.path) }) }, folder.path))) })] })), videos.length > 0 && (_jsxs(_Fragment, { children: [viewMode === 'nested' && subfolders.length > 0 && _jsx(SectionTitle, { children: "Files" }), viewMode === 'flat' && (_jsxs("p", { className: "mb-5 text-xs font-medium text-content/35", children: [videos.length, " file", videos.length !== 1 ? 's' : '', " \u00B7 including subfolders"] })), _jsx("div", { className: `grid items-start gap-x-5 gap-y-9 ${gridColsClass}`, style: gridStyle, children: videos.map((v, i) => videos.length > ANIMATION_BUDGET ? (_jsx("div", { children: _jsx(MediaCard, { video: v }) }, v.id)) : (_jsx(motion.div, { layout: true, initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4, delay: entryDelay(i), ease: 'easeOut' }, children: _jsx(MediaCard, { video: v }) }, v.id))) })] }))] }))] }));
 }
 /* ─── Horizontal shelf (carousel) ─── */
 function Shelf({ title, count, items, index, onSeeAll, }) {

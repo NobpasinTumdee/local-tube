@@ -17,6 +17,7 @@ import { useVaultStore } from './store/useVaultStore';
 import { useIsPoppedOut } from './hooks/useDocumentPiP';
 import { useShortsPanelInset } from './store/useShortsStore';
 import { useScrollMemory } from './hooks/useScrollMemory';
+import { clearThumbnailCache } from './utils/thumbnailCache';
 import RightShortsPanel from './components/RightShortsPanel';
 import Welcome from './components/Welcome';
 import Header from './components/Header';
@@ -140,6 +141,9 @@ export default function App() {
     })
       .then((result) => {
         if (generation !== scanGeneration.current) return;
+        /* The LRU indexes the OLD library's ids; setLibrary revokes what it
+           drops, so the cache must forget them in the same breath. */
+        clearThumbnailCache();
         setLibrary(result);
         const failed = result.roots.filter((r) => r.error);
         if (failed.length) {

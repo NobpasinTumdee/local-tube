@@ -1,13 +1,19 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { memo, useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Image as ImageIcon, Film, PlaySquare, Volume2, VolumeX, Plus, Play, Clock, Heart, ListPlus, Check, Tag, Hash, X, Lock } from 'lucide-react';
 import { useStore, normalizeTag } from '../store/useStore';
 import { useVaultStore } from '../store/useVaultStore';
-import { generateThumbnail, thumbnailQueue } from '../utils/generateThumbnail';
+import { generateThumbnail, generateImageThumbnail, thumbnailQueue, isAbortError } from '../utils/generateThumbnail';
+import { rememberThumbnail, touchThumbnail } from '../utils/thumbnailCache';
+import { useInViewport } from '../hooks/useInViewport';
+import SkeletonTile from './SkeletonTile';
 import { formatDuration, formatRelative, formatResolution } from '../utils/format';
 import { DND_MEDIA_ID } from '../utils/layoutGrid';
 const HOVER_DELAY_MS = 500;
+/* Stable identity: returning a fresh [] from the selector would make the
+   store think the value changed on every render. */
+const EMPTY_PLAYLISTS = [];
 /**
  * "Move to Private Vault" row in the card menu.
  *
@@ -24,7 +30,7 @@ function VaultMenuItem({ mediaId }) {
         return null;
     return (_jsxs("button", { onClick: () => void (inVault ? removeFromVault(mediaId) : addToVault(mediaId)), className: "flex w-full items-center gap-2 border-t border-content/10 px-3 py-2 text-left text-sm text-content/80 transition hover:bg-content/10", children: [_jsx(Lock, { className: `h-3.5 w-3.5 shrink-0 ${inVault ? 'text-primary' : 'text-content/40'}` }), _jsx("span", { className: "min-w-0 flex-1 truncate", children: inVault ? 'Remove from Private Vault' : 'Move to Private Vault' }), inVault && _jsx(Check, { className: "h-3.5 w-3.5 shrink-0 text-primary", strokeWidth: 3 })] }));
 }
-export default function MediaCard({ video }) {
+function MediaCard({ video }) {
     const meta = useStore((s) => s.videoMeta[video.id]);
     const setVideoMeta = useStore((s) => s.setVideoMeta);
     const playVideo = useStore((s) => s.playVideo);
@@ -34,7 +40,11 @@ export default function MediaCard({ video }) {
     const cardAspectRatio = useStore((s) => s.cardAspectRatio);
     /* favorites & virtual playlists */
     const isFav = useStore((s) => s.favorites.includes(video.id));
-    const playlists = useStore((s) => s.virtualPlaylists);
+    /* Subscribed only while the menu is open. `virtualPlaylists` gets a new
+       array identity on every playlist edit, and an unconditional subscription
+       re-renders every card in the library each time one changes. */
+    const [menuOpen, setMenuOpen] = useState(false);
+    const playlists = useStore((s) => (menuOpen ? s.virtualPlaylists : EMPTY_PLAYLISTS));
     const toggleFavorite = useStore((s) => s.toggleFavorite);
     const togglePlaylistItem = useStore((s) => s.togglePlaylistItem);
     const createPlaylist = useStore((s) => s.createPlaylist);
@@ -43,13 +53,11 @@ export default function MediaCard({ video }) {
     const tags = useStore((s) => s.mediaTags[video.id]);
     const addTag = useStore((s) => s.addTag);
     const removeTag = useStore((s) => s.removeTag);
-    const cardRef = useRef(null);
-    const [requested, setRequested] = useState(false);
+    const [cardRef, inView] = useInViewport();
     const [failed, setFailed] = useState(false);
     /* local dimension capture for images (videos get theirs from extraction) */
     const [imgDims, setImgDims] = useState(null);
     /* playlist dropdown (rendered via portal so card/shelf overflow can't clip it) */
-    const [menuOpen, setMenuOpen] = useState(false);
     const [menuPos, setMenuPos] = useState(null);
     const [newName, setNewName] = useState('');
     const plBtnRef = useRef(null);
@@ -151,45 +159,74 @@ export default function MediaCard({ video }) {
     const previewUrlRef = useRef(null);
     const [previewUrl, setPreviewUrl] = useState(null);
     const [previewMuted, setPreviewMuted] = useState(true);
-    /* lazy thumbnail via IntersectionObserver.
-       Videos → canvas frame extraction; images → object URL directly (no canvas). */
-    const load = useCallback(async () => {
-        if (requested || meta?.thumbnailUrl)
+    /*
+     * Thumbnail extraction, scoped to the time this card is near the viewport.
+     *
+     * The controller is the cancellation handle: scrolling past aborts the work
+     * whether it is mid-decode or still queued behind the concurrency gate.
+     * Without it a fast scroll through a thousand cards left a thousand
+     * extractions to grind through, long after the user had moved on.
+     */
+    const abortRef = useRef(null);
+    /*
+     * A ref, not state, and deliberately so. As state it fed `load`'s dependency
+     * list, so starting a load changed `load`'s identity, which re-ran the
+     * effect below, whose cleanup aborted the extraction that had just started —
+     * and the re-run then bailed out because the flag was set. Nothing ever
+     * finished. Nothing here needs a render, so nothing here is state.
+     */
+    const requestedRef = useRef(false);
+    const load = useCallback(async (signal) => {
+        if (requestedRef.current)
             return;
-        setRequested(true);
+        requestedRef.current = true;
         try {
             const file = await video.handle.getFile();
-            if (isImage) {
-                const url = URL.createObjectURL(file);
-                setVideoMeta(video.id, { thumbnailUrl: url, duration: undefined });
+            if (signal.aborted)
+                return;
+            const result = isImage
+                ? await thumbnailQueue.run(() => generateImageThumbnail(file, { signal }), signal)
+                : await thumbnailQueue.run(() => generateThumbnail(file, { signal }), signal);
+            if (signal.aborted) {
+                /* Finished just as we were cancelled — nobody will ever show it. */
+                URL.revokeObjectURL(result.url);
+                return;
             }
-            else {
-                const result = await thumbnailQueue.run(() => generateThumbnail(file));
-                setVideoMeta(video.id, {
-                    thumbnailUrl: result.dataUrl,
-                    duration: result.duration,
-                    width: result.width,
-                    height: result.height,
-                });
-            }
+            setVideoMeta(video.id, {
+                thumbnailUrl: result.url,
+                duration: result.duration,
+                width: result.width,
+                height: result.height,
+            });
+            rememberThumbnail(video.id, result.url);
         }
-        catch {
-            setFailed(true);
+        catch (err) {
+            /* A cancelled card is not a broken one: let it try again next time it
+               scrolls back into view. */
+            if (isAbortError(err))
+                requestedRef.current = false;
+            else
+                setFailed(true);
         }
-    }, [requested, meta?.thumbnailUrl, video, setVideoMeta, isImage]);
+    }, [video, setVideoMeta, isImage]);
+    const hasThumb = !!meta?.thumbnailUrl;
     useEffect(() => {
-        const el = cardRef.current;
-        if (!el)
+        if (!inView) {
+            /* Scrolled past: drop the queued or in-flight extraction. */
+            abortRef.current?.abort();
+            abortRef.current = null;
             return;
-        const obs = new IntersectionObserver(([entry]) => {
-            if (entry.isIntersecting) {
-                load();
-                obs.disconnect();
-            }
-        }, { rootMargin: '300px' });
-        obs.observe(el);
-        return () => obs.disconnect();
-    }, [load]);
+        }
+        if (hasThumb) {
+            /* Already have one: mark it recently used so the LRU keeps it. */
+            touchThumbnail(video.id);
+            return;
+        }
+        const controller = new AbortController();
+        abortRef.current = controller;
+        void load(controller.signal);
+        return () => controller.abort();
+    }, [inView, hasThumb, load, video.id]);
     /* ── Release preview blob URL on unmount (memory-leak guard) ── */
     useEffect(() => {
         return () => {
@@ -255,6 +292,20 @@ export default function MediaCard({ video }) {
         else
             playVideo(video.id);
     }
+    /*
+     * Off-screen: the placeholder only. Everything expensive about a card —
+     * the decoded <img>, the hover handlers, the drag wiring, the portals —
+     * stays unmounted until it is within a screen of the viewport, and is torn
+     * down again once it is a screen past. Scrolling a 5,000-file folder keeps
+     * roughly a constant number of live images rather than one per file seen.
+     *
+     * `content-visibility` lets the browser skip layout and paint for the
+     * placeholder too, and `contain-intrinsic-size` tells it what height to
+     * assume so the scrollbar does not jump as tiles come and go.
+     */
+    if (!inView) {
+        return (_jsx("div", { ref: cardRef, style: { contentVisibility: 'auto', containIntrinsicSize: '320px' }, children: _jsx(SkeletonTile, {}) }));
+    }
     return (_jsxs("div", { ref: cardRef, className: "group cursor-pointer outline-none", onClick: handleClick, onMouseEnter: onMouseEnter, onMouseLeave: onMouseLeave, 
         /* Videos and images are both draggable onto a specific grid slot */
         draggable: layoutTarget, onDragStart: layoutTarget
@@ -268,7 +319,11 @@ export default function MediaCard({ video }) {
                                 if (t.naturalWidth)
                                     setImgDims({ w: t.naturalWidth, h: t.naturalHeight });
                             }
-                        }, className: `h-full w-full object-cover transition-transform duration-500 ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: failed ? (_jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 })) : (_jsx("div", { className: "h-6 w-6 animate-spin rounded-full border-2 border-content/10 border-t-content/40" })) })), previewUrl && (_jsx("video", { ref: previewVideoRef, src: previewUrl, autoPlay: true, muted: previewMuted, loop: true, playsInline: true, className: "absolute inset-0 h-full w-full bg-black object-cover", onCanPlay: () => {
+                        }, className: `h-full w-full object-cover transition-transform duration-500 ${previewUrl ? 'opacity-0' : 'opacity-100'}`, loading: "lazy" })) : failed ? (_jsx("div", { className: "flex h-full w-full items-center justify-center", children: _jsx(PlaySquare, { className: "h-10 w-10 text-content/10", strokeWidth: 1.5 }) })) : (
+                    /* Visible, extraction in flight: the shimmer reads as "coming",
+                       where a spinner on every tile reads as "stuck". `bare` because
+                       the card draws its own title rows below. */
+                    _jsx("div", { className: "absolute inset-0", children: _jsx(SkeletonTile, { active: true, bare: true, fill: true }) })), previewUrl && (_jsx("video", { ref: previewVideoRef, src: previewUrl, autoPlay: true, muted: previewMuted, loop: true, playsInline: true, className: "absolute inset-0 h-full w-full bg-black object-cover", onCanPlay: () => {
                             const el = previewVideoRef.current;
                             if (el)
                                 el.play().catch(() => { });
@@ -285,6 +340,14 @@ export default function MediaCard({ video }) {
                             ? 'bg-gradient-to-br from-emerald-500 to-teal-500'
                             : 'bg-gradient-to-br from-primary to-accent'}`, children: video.playlist.charAt(0) }), _jsxs("div", { className: "min-w-0 flex-1", children: [_jsx("h3", { className: "line-clamp-2 text-[15px] font-semibold leading-snug tracking-[-0.01em] text-content/95 transition-colors group-hover:text-content", children: video.title }), _jsx("p", { className: "mt-1 truncate text-[13px] font-medium text-content/45", children: video.playlist })] })] })] }));
 }
+/*
+ * `video` entries come from the scan and keep their identity until the
+ * workspace is re-scanned, so the default shallow compare is exactly right:
+ * a card re-renders for its own store slices and for nothing else. Unrelated
+ * global churn — another slot playing, a tag added elsewhere, the layout
+ * template changing — no longer touches it.
+ */
+export default memo(MediaCard);
 /* ─── Small pill used in the hover metadata rail ─── */
 function MetaChip({ children }) {
     return (_jsx("span", { className: "flex items-center gap-1 rounded-md bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold text-white backdrop-blur-sm", children: children }));

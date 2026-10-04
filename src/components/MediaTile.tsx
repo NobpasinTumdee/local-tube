@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, X, GripVertical, Plus, Film,
   Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw, Zap, Folder as FolderIcon,
@@ -28,7 +28,7 @@ const MAX_ZOOM = 5;
  * unmount or whenever the slot's media changes — so nothing leaks as tiles are
  * added, removed, swapped, or replaced.
  */
-export default function MediaTile({ slot, mediaId, onRegister }: Props) {
+function MediaTile({ slot, mediaId, onRegister }: Props) {
   const videos = useStore((s) => s.videos);
   const videoMeta = useStore((s) => s.videoMeta);
   const addToLayout = useStore((s) => s.addToLayout);
@@ -455,6 +455,13 @@ function SlotOption({
     </button>
   );
 }
+
+/*
+ * All three props are stable: `slot` and `mediaId` come from the slot array,
+ * and `onRegister` is a useCallback in MediaViewer. So a tile re-renders when
+ * ITS slot changes, not when a sibling slot starts playing.
+ */
+export default memo(MediaTile);
 
 function Loader({ icon }: { icon: React.ReactNode }) {
   return <div className="flex h-full w-full items-center justify-center">{icon}</div>;

@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Volume2, VolumeX, X, GripVertical, Plus, Film, Image as ImageIcon, ZoomIn, ZoomOut, RotateCcw, Zap, Folder as FolderIcon, } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { shortsSlotId } from '../store/useShortsStore';
@@ -15,7 +15,7 @@ const MAX_ZOOM = 5;
  * unmount or whenever the slot's media changes — so nothing leaks as tiles are
  * added, removed, swapped, or replaced.
  */
-export default function MediaTile({ slot, mediaId, onRegister }) {
+function MediaTile({ slot, mediaId, onRegister }) {
     const videos = useStore((s) => s.videos);
     const videoMeta = useStore((s) => s.videoMeta);
     const addToLayout = useStore((s) => s.addToLayout);
@@ -200,6 +200,12 @@ function EmptySlot({ slot, dragOver, onDrop, onDragOver, onDragLeave, }) {
 function SlotOption({ icon, title, hint, onClick, disabled, }) {
     return (_jsxs("button", { onClick: onClick, disabled: disabled, className: "flex w-full items-center gap-2.5 rounded-lg border border-content/10 bg-surface/60 px-2.5 py-2 text-left transition hover:border-primary/40 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40", children: [_jsx("span", { className: "shrink-0 text-primary", children: icon }), _jsxs("span", { className: "min-w-0", children: [_jsx("span", { className: "block truncate text-[12px] font-semibold text-content", children: title }), _jsx("span", { className: "block truncate text-[10px] text-content/45", children: hint })] })] }));
 }
+/*
+ * All three props are stable: `slot` and `mediaId` come from the slot array,
+ * and `onRegister` is a useCallback in MediaViewer. So a tile re-renders when
+ * ITS slot changes, not when a sibling slot starts playing.
+ */
+export default memo(MediaTile);
 function Loader({ icon }) {
     return _jsx("div", { className: "flex h-full w-full items-center justify-center", children: icon });
 }
